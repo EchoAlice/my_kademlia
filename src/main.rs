@@ -1,10 +1,14 @@
 #![allow(unused)]
 
 use sha2::{Digest, Sha256};
-use crate::kbucket::{KbucketTable, Node};
+use crate::{kbucket::KbucketTable,
+            helper::Node,
+};
 
 
 pub mod kbucket;
+pub mod helper;
+
 
 fn main() {
     // Routing Table Logic

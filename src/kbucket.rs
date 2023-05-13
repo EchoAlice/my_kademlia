@@ -2,27 +2,16 @@
 
 use std::string::String;
 use uint::*;
+use crate::helper::{Identifier, 
+                    Node, 
+                    U256,
+};
 
-type Bucket = [Option<Node>; BUCKET_SIZE];
-
-
-
-// Move these lines to helper.rs
-// -------------------------------------------
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
-type Identifier = [u8; 32];
-construct_uint! {
-    /// 256-bit unsigned integer (little endian).
-    pub struct U256(4);
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Node {
-    pub ip_address: &'static str,
-    pub udp_port: &'static str,
-    pub node_id: Identifier,
-}
+type Bucket = [Option<Node>; BUCKET_SIZE];
+
 
 
 // Where our node keeps up with peers in the network.
@@ -50,15 +39,17 @@ impl KbucketTable {
         println!("Bucket index for given key: {}", i);
         // place_node();
     }
+    
     pub fn remove(&self, y: Node) {
         let i = self.find_bucket(y.node_id);
         // place_node();
     }
 
-    pub fn find_bucket(&self, identifier: Identifier) -> u32 {
+    fn find_bucket(&self, identifier: Identifier) -> u32 {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let distance = x^y;
+        println!("Distance leading zeros, {}", distance.leading_zeros());
         distance.leading_zeros() - 1
     }
 }
