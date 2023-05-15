@@ -44,7 +44,7 @@ impl KbucketTable {
         }
     }
 
-    pub fn store(&self, key: Identifier, value: StoreValue) {
+    pub fn store(&mut self, key: Identifier, value: StoreValue) {
         match value {
             StoreValue::Node(value) => {
                 println!("Store a node");
@@ -58,20 +58,22 @@ impl KbucketTable {
     }
 
     //  Add our node to the bucket if it's not already there.  Make function private once finished testing
-    pub fn add_node(&self, y: Node) {
+    pub fn add_node(&mut self, y: Node) {
         let bucket_index = self.find_bucket(y.node_id);
         let mut bucket = self.buckets[bucket_index];
         let result = self.search_bucket(bucket, y);
-        if result.1 == true{
+        if result.1 == true {
             println!("Node was already stored");
             return 
         }
         else {
             bucket[result.0] = Some(y);
+            // DEBUG!  How can I write to my routing table?
+            self.buckets[bucket_index] = bucket;
             println!("Node is now stored in routing table");
-            println!("Bucket: {:?}", bucket); 
             return
         }
+        println!("Bucket: {:?}", bucket); 
     }
 
     // TODO:
@@ -90,17 +92,24 @@ impl KbucketTable {
         bucket_index
     }
 
-    // TODO:
+    // TODO:  Why isn't my Some arm working?
     fn search_bucket(&self, bucket: Bucket, node: Node) -> (usize, bool) {
         let mut last_empty_index = 0;
         
-        // If node was already in bucket -->  return (it's index, true)
         for i in 0..BUCKET_SIZE { 
-            // if node.node_id == bucket[i].node_id {
-            //     // Node is already in the routing table, return where it's located
-            //     return (i, true)
-            // }
-            // Check if bucket spot is empty
+            println!("Bucket index {} is {:?}", i, bucket[i]);
+            match bucket[i] {
+                Some(bucket_node) => {
+                    println!("Node in routing table: {:?}", bucket_node); 
+                    // If node was already in bucket -->  return (it's index, true)
+                    // return (i, true)
+                }
+                None => {
+                    // If bucket spot is empty, record larger empty index
+                    // println!("Spot {} is empty", i);
+                    last_empty_index = i;
+                }
+            }
         }
         // If node wasn't already in bucket -->  return (largest available index, false)
         return (last_empty_index, false)
