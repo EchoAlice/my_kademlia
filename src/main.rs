@@ -26,15 +26,6 @@ fn main() {
     let local_nodes_rt = KbucketTable::new(local_node.node_id);
 
     // Testing XOR Logic for now
-    let result = local_nodes_rt.add(node_to_add);
+    let result = local_nodes_rt.add_node(node_to_add);
     println!("{:?}", result);
-
-
-    /*
-    In the end, expose these functionalities:
-        ping()
-        store()
-        find_node()
-        find_value()
-     */
 }
