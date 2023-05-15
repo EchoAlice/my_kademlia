@@ -43,7 +43,6 @@ impl KbucketTable {
             store: std::collections::HashMap::new(),
         }
     }
-
     pub fn store(&mut self, key: Identifier, value: StoreValue) {
         match value {
             StoreValue::Node(value) => {
@@ -56,16 +55,38 @@ impl KbucketTable {
             }
         }
     }
+    pub fn find_node(&mut self, y: Node) -> Option<Node> {
+        let bucket_index = self.find_bucket(y.node_id);
+        let mut bucket = self.buckets[bucket_index];
+        let result = self.search_bucket(bucket, y);
 
+        match result.0 {
+            true => {
+                println!("Node[bucket_index]: {:?}", bucket[result.1]);
+                let found_node = bucket[result.1];
+                return found_node
+            }
+            false => {
+                println!("Node is not stored");
+                return None
+            }
+        }
+    }
+    // TODO:
+    pub fn find_value() {}
+    pub fn ping() {}
+    
     // Don't expose functions from here down.
     // ---------------------------------------------------------------------------------------------------
     
     //  Add our node to the bucket if it's not already there.
     pub fn add_node(&mut self, y: Node) {
+        // TODO: Replace these 3 lines w/ find_node().  Kind of complex to do... Maybe later
         let bucket_index = self.find_bucket(y.node_id);
         let mut bucket = self.buckets[bucket_index];
         let result = self.search_bucket(bucket, y);
-        match result.1 {
+
+        match result.0 {
             // Node was already stored
             true => {
                 println!("Node was already stored");
@@ -73,7 +94,7 @@ impl KbucketTable {
             }
             // Node wasn't already stored
             false => {
-                bucket[result.0] = Some(y);
+                bucket[result.1] = Some(y);
                 self.buckets[bucket_index] = bucket;
                 println!("Node is now stored in routing table");
                 return
@@ -97,14 +118,14 @@ impl KbucketTable {
     }
 
     // How can i make this return value less confusing?
-    fn search_bucket(&self, bucket: Bucket, node: Node) -> (usize, bool) {
+    fn search_bucket(&self, bucket: Bucket, node: Node) -> (bool, usize) {
         let mut last_empty_index = 0;
         for i in 0..BUCKET_SIZE { 
             match bucket[i] {
                 Some(bucket_node) => {
                     // If node was already in bucket -->  return (it's index, true).
                     if bucket_node == node {
-                        return (i, true)
+                        return (true, i)
                     }
                     else {continue};
                 }
@@ -115,6 +136,6 @@ impl KbucketTable {
         }
         // If node wasn't already in bucket -->  return (largest available index, false)
         println!("Last empty index: {}", last_empty_index);
-        return (last_empty_index, false)
+        return (false, last_empty_index)
     }
 }
