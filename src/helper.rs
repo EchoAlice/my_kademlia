@@ -8,7 +8,7 @@ construct_uint! {
     pub struct U256(4);
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Node {
     pub ip_address: &'static str,
     pub udp_port: &'static str,

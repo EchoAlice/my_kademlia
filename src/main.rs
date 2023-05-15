@@ -33,14 +33,11 @@ fn main() {
     // Testing XOR Logic for now.  Does our node's routing table persist?
     let result = local_nodes_rt.add_node(first_node_to_add);
     println!("\n");
-    println!("\n");
+    let result = local_nodes_rt.add_node(second_node_to_add);
     println!("\n");
     let result = local_nodes_rt.add_node(second_node_to_add);
     println!("\n");
+    let result = local_nodes_rt.add_node(first_node_to_add);
     println!("\n");
-    println!("\n");
-    let result = local_nodes_rt.add_node(second_node_to_add);
-    println!("\n");
-    println!("\n");
-    println!("\n");
+    println!("Node's routing table: {:?}", local_nodes_rt.buckets);
 }
