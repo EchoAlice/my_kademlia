@@ -17,20 +17,16 @@ pub enum StoreValue {
     Sample(String),  // Define a sample, and change the type to a sample
 }
 
-/*
-    Implementation details:
-        - Each k-bucket is kept sorted by time last seen.  Least recently seen -> Most recently seen node
-*/
 
 
-// Bucket 0: Farthest peers from node in network 
-// Bucket 255: Closest peers from node in network
+// Bucket 0: Closest peers from node in network.   
+// Bucket 255: Farthest peers from node in network
+// Each k-bucket is kept sorted by time last seen.  Least recently seen -> Most recently seen node
 #[derive(Debug)]
 pub struct KbucketTable {
     pub local_node_id: Identifier,
     pub buckets: [Bucket; MAX_BUCKETS],
     store: std::collections::HashMap<Vec<u8>, Vec<u8>>,   // Same storage as portal network.
-
 }
 
 impl KbucketTable {
@@ -49,6 +45,7 @@ impl KbucketTable {
                 println!("Store a node");
                 self.add_node(value);
             }
+            // TODO:
             StoreValue::Sample(value) => {
                 println!("Store a value");
                 self.add_store();
@@ -104,6 +101,7 @@ impl KbucketTable {
 
     // TODO:
     fn add_store(&self) {
+    
     }
 
     fn find_bucket(&self, identifier: Identifier) -> usize {
@@ -111,7 +109,7 @@ impl KbucketTable {
         let y = U256::from(identifier);
         let xor_distance = x^y;
         
-        let bucket_index = ((xor_distance.leading_zeros() - 1) as usize);
+        let bucket_index = ((256 - xor_distance.leading_zeros()) as usize);
         println!("Xor distance leading zeros, {}", xor_distance.leading_zeros());
         println!("Bucket index for given key: {}", bucket_index);
         bucket_index
@@ -138,4 +136,11 @@ impl KbucketTable {
         println!("Last empty index: {}", last_empty_index);
         return (false, last_empty_index)
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
 }
