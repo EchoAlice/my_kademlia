@@ -1,11 +1,8 @@
 #![allow(unused)]
 
-use std::string::String;
+use crate::helper::{Identifier, Node, U256};
+use std::collections::HashMap;
 use uint::*;
-use crate::helper::{Identifier, 
-    Node,
-    U256,
-};
 
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
@@ -14,29 +11,24 @@ type Bucket = [Option<Node>; BUCKET_SIZE];
 
 pub enum StoreValue {
     Node(Node),
-    Sample(String),  // Define a sample, and change the type to a sample
+    Sample(String), // Define a sample, and change the type to a sample
 }
 
-
-
-// Bucket 0: Closest peers from node in network.   
+// Bucket 0: Closest peers from node in network.
 // Bucket 255: Farthest peers from node in network
-// Each k-bucket is kept sorted by time last seen.  Least recently seen -> Most recently seen node
 #[derive(Debug)]
 pub struct KbucketTable {
     pub local_node_id: Identifier,
     pub buckets: [Bucket; MAX_BUCKETS],
-    store: std::collections::HashMap<Vec<u8>, Vec<u8>>,   // Same storage as portal network.
+    store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as portal network.
 }
 
 impl KbucketTable {
     pub fn new(local_node_id: Identifier) -> Self {
-       let empty_bucket: [Option<Node>; BUCKET_SIZE] = [None; BUCKET_SIZE];
-        
         Self {
-            local_node_id: local_node_id,
-            buckets: [empty_bucket; MAX_BUCKETS],
-            store: std::collections::HashMap::new(),
+            local_node_id,
+            buckets: [Default::default(); MAX_BUCKETS],
+            store: Default::default(),
         }
     }
     pub fn store(&mut self, key: Identifier, value: StoreValue) {
@@ -52,95 +44,94 @@ impl KbucketTable {
             }
         }
     }
+
+    // Fix this function:
+    // Should take an Identifier as an arguement and return node info for K closest noodes:  Option<Vec<Node>>
     pub fn find_node(&mut self, y: Node) -> Option<Node> {
         let bucket_index = self.find_bucket(y.node_id);
         let mut bucket = self.buckets[bucket_index];
         let result = self.search_bucket(bucket, y);
 
-        match result.0 {
-            true => {
-                println!("Node[bucket_index]: {:?}", bucket[result.1]);
-                let found_node = bucket[result.1];
-                return found_node
-            }
-            false => {
-                println!("Node is not stored");
-                return None
-            }
+        if result.0 {
+            println!("Node[bucket_index]: {:?}", bucket[result.1]);
+            bucket[result.1]
+        } else {
+            println!("Node is not stored");
+            None
         }
     }
     // TODO:
     pub fn find_value() {}
     pub fn ping() {}
-    
+
     // Don't expose functions from here down.
     // ---------------------------------------------------------------------------------------------------
-    
+
     //  Add our node to the bucket if it's not already there.
     pub fn add_node(&mut self, y: Node) {
         // TODO: Replace these 3 lines w/ find_node().  Kind of complex to do... Maybe later
+
+        // Get rid of these lines
         let bucket_index = self.find_bucket(y.node_id);
         let mut bucket = self.buckets[bucket_index];
         let result = self.search_bucket(bucket, y);
 
-        match result.0 {
+        if result.0 {
             // Node was already stored
-            true => {
-                println!("Node was already stored");
-                return 
-            }
+            println!("Node was already stored");
+        } else {
             // Node wasn't already stored
-            false => {
-                bucket[result.1] = Some(y);
-                self.buckets[bucket_index] = bucket;
-                println!("Node is now stored in routing table");
-                return
-            }
+            bucket[result.1] = Some(y);
+            self.buckets[bucket_index] = bucket;
+            println!("Node is now stored in routing table");
         }
     }
 
     // TODO:
-    fn add_store(&self) {
-    
-    }
+    fn add_store(&self) {}
 
+    // find_bucket_index
     fn find_bucket(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
-        let xor_distance = x^y;
-        
-        let bucket_index = ((256 - xor_distance.leading_zeros()) as usize);
-        println!("Xor distance leading zeros, {}", xor_distance.leading_zeros());
+        let xor_distance = x ^ y;
+
+        let bucket_index = MAX_BUCKETS - (xor_distance.leading_zeros() as usize);
+        println!(
+            "Xor distance leading zeros, {}",
+            xor_distance.leading_zeros()
+        );
         println!("Bucket index for given key: {}", bucket_index);
         bucket_index
     }
 
     // How can i make this return value less confusing?
+    // Make it clearer l*r
+    // Checks to see if node is present in bucket.  If not, return last index
     fn search_bucket(&self, bucket: Bucket, node: Node) -> (bool, usize) {
         let mut last_empty_index = 0;
-        for i in 0..BUCKET_SIZE { 
+        for i in 0..BUCKET_SIZE {
             match bucket[i] {
                 Some(bucket_node) => {
-                    // If node was already in bucket -->  return (it's index, true).
+                    // If node was already in bucket  -->  return (it's true, index).
                     if bucket_node == node {
-                        return (true, i)
-                    }
-                    else {continue};
+                        return (true, i);
+                    } else {
+                        continue;
+                    };
                 }
                 None => {
                     last_empty_index = i;
                 }
             }
         }
-        // If node wasn't already in bucket -->  return (largest available index, false)
+        // If node wasn't already in bucket -->  return (largest available false, last_empty_index)
         println!("Last empty index: {}", last_empty_index);
-        return (false, last_empty_index)
+        return (false, last_empty_index);
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
 }
