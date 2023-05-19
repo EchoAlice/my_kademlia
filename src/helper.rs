@@ -1,4 +1,4 @@
-#![allow(unused)]
+use std::net::Ipv4Addr;
 use uint::*;
 
 pub type Identifier = [u8; 32];
@@ -10,7 +10,7 @@ construct_uint! {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Node {
-    pub ip_address: &'static str,
-    pub udp_port: &'static str,
+    pub ip_address: Ipv4Addr,
+    pub udp_port: u16,
     pub node_id: Identifier,
 }
