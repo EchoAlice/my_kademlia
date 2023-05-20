@@ -17,7 +17,8 @@ pub enum FindNodeResult {
 // Should this be an enum instead?
 pub struct SearchResult {
     pub found: bool,
-    pub index: usize,
+    pub bucket_index: usize,
+    pub column_index: usize,
 }
 
 // Bucket 0: Closest peers from node in network.
@@ -49,20 +50,20 @@ impl KbucketTable {
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* to that id. *Slight modification*
     pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
-        let bucket_index = self.find_bucket_index(id);
-        let result = self.search_bucket(bucket_index, id);
-        let mut bucket = self.buckets[bucket_index];
+        let result = self.search_table(id);
+        let mut bucket = self.buckets[result.bucket_index];
 
         if result.found == true {
-            FindNodeResult::Found(bucket[result.index])
+            // Returns Node
+            FindNodeResult::Found(bucket[result.column_index])
         } else {
             let mut known_nodes = Vec::new();
             for i in 0..BUCKET_SIZE {
                 if bucket[i].is_some() {
-                    // known_nodes.push(self.buckets[bucket_index][i].clone())
                     known_nodes.push(bucket[i].clone())
                 }
             }
+            // Returns nodes within local node's closest bucket
             FindNodeResult::NotFound(known_nodes)
         }
     }
@@ -74,8 +75,41 @@ impl KbucketTable {
     /// nodes to the key and sends them store RPCs".
     pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
-    // Don't expose functions from here down.
+    // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
+    pub fn add_node(&mut self, node: Node) {}
+
+    // Searches table for node specified.
+    fn search_table(&self, id: Identifier) -> SearchResult {
+        let mut last_empty_index = 0;
+        let bucket_index = self.find_bucket_index(id);
+        let mut bucket = self.buckets[bucket_index];
+
+        for i in 0..BUCKET_SIZE {
+            match bucket[i] {
+                Some(bucket_node) => {
+                    if bucket_node.node_id == id {
+                        SearchResult {
+                            found: true,
+                            bucket_index,
+                            column_index: i,
+                        }
+                    } else {
+                        continue;
+                    };
+                }
+                None => {
+                    last_empty_index = i;
+                }
+            }
+        }
+        SearchResult {
+            found: false,
+            bucket_index,
+            column_index: last_empty_index,
+        }
+    }
+
     fn find_bucket_index(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
@@ -89,36 +123,6 @@ impl KbucketTable {
         println!("Bucket index for given key: {}", bucket_index);
         bucket_index
     }
-
-    fn search_bucket(&self, index: usize, id: Identifier) -> SearchResult {
-        let mut last_empty_index = 0;
-        let mut bucket = self.buckets[index];
-        for i in 0..BUCKET_SIZE {
-            match bucket[i] {
-                Some(bucket_node) => {
-                    if bucket_node.node_id == id {
-                        SearchResult {
-                            found: true,
-                            index: i,
-                        }
-                    } else {
-                        continue;
-                    };
-                }
-                None => {
-                    last_empty_index = i;
-                }
-            }
-        }
-        SearchResult {
-            found: false,
-            index: last_empty_index,
-        }
-    }
-
-    // TODO:
-    pub fn add_node(&mut self, y: Node) {}
-    fn add_store(&self) {}
 }
 
 #[cfg(test)]
