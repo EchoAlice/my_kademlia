@@ -9,11 +9,6 @@ const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<Node>; BUCKET_SIZE];
 
-// Should samples be the only thing stored in the database?
-pub enum StoreValue {
-    Node(Node),
-    Sample(String), // Define a sample, and change the type to a sample
-}
 pub enum FindNodeResult {
     // I don't think this should be "Option<T>".  Fix later
     Found(Option<Node>),
@@ -48,7 +43,6 @@ impl KbucketTable {
     // Probes a node to see if it's online
     pub fn ping() {}
 
-    // WIP: Node lookups
     /// "The most important procedure a Kademlia participant must perform is to locate
     /// the k closest nodes to some given node ID" - Kademlia Paper
     ///
@@ -65,6 +59,7 @@ impl KbucketTable {
             let mut known_nodes = Vec::new();
             for i in 0..BUCKET_SIZE {
                 if bucket[i].is_some() {
+                    // known_nodes.push(self.buckets[bucket_index][i].clone())
                     known_nodes.push(bucket[i].clone())
                 }
             }
@@ -77,21 +72,8 @@ impl KbucketTable {
     /// Instructs a node to store a key, value pair for later retrieval. "Most operations are implemented
     /// in terms of the lookup proceedure. To store a <key,value> pair, a participant locates the k closes
     /// nodes to the key and sends them store RPCs".
-    // TODO:  I think only samples need to be stored in the database.  Get rid of all this excess logic
-    pub fn store(&mut self, key: Identifier, value: StoreValue) {
-        match value {
-            // TODO:
-            StoreValue::Node(value) => {
-                println!("Store a node");
-                self.add_node(value);
-            }
-            // TODO:
-            StoreValue::Sample(value) => {
-                println!("Store a value");
-                self.add_store();
-            }
-        }
-    }
+    pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
+
     // Don't expose functions from here down.
     // ---------------------------------------------------------------------------------------------------
     fn find_bucket_index(&self, identifier: Identifier) -> usize {
