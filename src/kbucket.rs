@@ -9,9 +9,20 @@ const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<Node>; BUCKET_SIZE];
 
+// Should samples be the only thing stored in the database?
 pub enum StoreValue {
     Node(Node),
     Sample(String), // Define a sample, and change the type to a sample
+}
+pub enum FindNodeResult {
+    // I don't think this should be "Option<T>".  Fix later
+    Found(Option<Node>),
+    NotFound(Vec<Option<Node>>),
+}
+// Should this be an enum instead?
+pub struct SearchResult {
+    pub found: bool,
+    pub index: usize,
 }
 
 // Bucket 0: Closest peers from node in network.
@@ -31,8 +42,45 @@ impl KbucketTable {
             store: Default::default(),
         }
     }
+    // Protocol's RPCs:
+    // ---------------------------------------------------------------------------------------------------
+    // TODO:
+    // Probes a node to see if it's online
+    pub fn ping() {}
+
+    // WIP: Node lookups
+    /// "The most important procedure a Kademlia participant must perform is to locate
+    /// the k closest nodes to some given node ID" - Kademlia Paper
+    ///
+    /// Recieves an id request and returns node information on nodes within
+    /// *its closest bucket* to that id. *Slight modification*
+    pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
+        let bucket_index = self.find_bucket_index(id);
+        let result = self.search_bucket(bucket_index, id);
+        let mut bucket = self.buckets[bucket_index];
+
+        if result.found == true {
+            FindNodeResult::Found(bucket[result.index])
+        } else {
+            let mut known_nodes = Vec::new();
+            for i in 0..BUCKET_SIZE {
+                if bucket[i].is_some() {
+                    known_nodes.push(bucket[i].clone())
+                }
+            }
+            FindNodeResult::NotFound(known_nodes)
+        }
+    }
+    // TODO:
+    pub fn find_value() {}
+
+    /// Instructs a node to store a key, value pair for later retrieval. "Most operations are implemented
+    /// in terms of the lookup proceedure. To store a <key,value> pair, a participant locates the k closes
+    /// nodes to the key and sends them store RPCs".
+    // TODO:  I think only samples need to be stored in the database.  Get rid of all this excess logic
     pub fn store(&mut self, key: Identifier, value: StoreValue) {
         match value {
+            // TODO:
             StoreValue::Node(value) => {
                 println!("Store a node");
                 self.add_node(value);
@@ -44,54 +92,9 @@ impl KbucketTable {
             }
         }
     }
-
-    // Fix this function:
-    // Should take an Identifier as an arguement and return node info for K closest noodes:  Option<Vec<Node>>
-    pub fn find_node(&mut self, y: Node) -> Option<Node> {
-        let bucket_index = self.find_bucket(y.node_id);
-        let mut bucket = self.buckets[bucket_index];
-        let result = self.search_bucket(bucket, y);
-
-        if result.0 {
-            println!("Node[bucket_index]: {:?}", bucket[result.1]);
-            bucket[result.1]
-        } else {
-            println!("Node is not stored");
-            None
-        }
-    }
-    // TODO:
-    pub fn find_value() {}
-    pub fn ping() {}
-
     // Don't expose functions from here down.
     // ---------------------------------------------------------------------------------------------------
-
-    //  Add our node to the bucket if it's not already there.
-    pub fn add_node(&mut self, y: Node) {
-        // TODO: Replace these 3 lines w/ find_node().  Kind of complex to do... Maybe later
-
-        // Get rid of these lines
-        let bucket_index = self.find_bucket(y.node_id);
-        let mut bucket = self.buckets[bucket_index];
-        let result = self.search_bucket(bucket, y);
-
-        if result.0 {
-            // Node was already stored
-            println!("Node was already stored");
-        } else {
-            // Node wasn't already stored
-            bucket[result.1] = Some(y);
-            self.buckets[bucket_index] = bucket;
-            println!("Node is now stored in routing table");
-        }
-    }
-
-    // TODO:
-    fn add_store(&self) {}
-
-    // find_bucket_index
-    fn find_bucket(&self, identifier: Identifier) -> usize {
+    fn find_bucket_index(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
@@ -105,17 +108,17 @@ impl KbucketTable {
         bucket_index
     }
 
-    // How can i make this return value less confusing?
-    // Make it clearer l*r
-    // Checks to see if node is present in bucket.  If not, return last index
-    fn search_bucket(&self, bucket: Bucket, node: Node) -> (bool, usize) {
+    fn search_bucket(&self, index: usize, id: Identifier) -> SearchResult {
         let mut last_empty_index = 0;
+        let mut bucket = self.buckets[index];
         for i in 0..BUCKET_SIZE {
             match bucket[i] {
                 Some(bucket_node) => {
-                    // If node was already in bucket  -->  return (it's true, index).
-                    if bucket_node == node {
-                        return (true, i);
+                    if bucket_node.node_id == id {
+                        SearchResult {
+                            found: true,
+                            index: i,
+                        }
                     } else {
                         continue;
                     };
@@ -125,10 +128,15 @@ impl KbucketTable {
                 }
             }
         }
-        // If node wasn't already in bucket -->  return (largest available false, last_empty_index)
-        println!("Last empty index: {}", last_empty_index);
-        return (false, last_empty_index);
+        SearchResult {
+            found: false,
+            index: last_empty_index,
+        }
     }
+
+    // TODO:
+    pub fn add_node(&mut self, y: Node) {}
+    fn add_store(&self) {}
 }
 
 #[cfg(test)]
