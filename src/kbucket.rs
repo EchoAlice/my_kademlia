@@ -77,7 +77,16 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    pub fn add_node(&mut self, node: Node) {}
+    pub fn add_node(&mut self, node: Node) {
+        let result = self.search_table(node.node_id);
+        let mut bucket = self.buckets[result.bucket_index];
+
+        if result.found == false {
+            bucket[result.column_index] = Some(node)
+        } else {
+            println!("Node's already in our table")
+        }
+    }
 
     // Searches table for node specified.
     fn search_table(&self, id: Identifier) -> SearchResult {
@@ -125,6 +134,11 @@ impl KbucketTable {
     }
 }
 
+// TODO:  Implement real deal tests!
+
+// Test find_node()      **Requires adding nodes to our table**
+// Test search_table()
+// Test add_node()
 #[cfg(test)]
 mod tests {
     use super::*;
