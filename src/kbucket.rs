@@ -14,7 +14,6 @@ pub enum FindNodeResult {
     Found(Option<Node>),
     NotFound(Vec<Option<Node>>),
 }
-// Should this be an enum instead?
 pub struct SearchResult {
     pub found: bool,
     pub bucket_index: usize,
@@ -45,31 +44,35 @@ impl KbucketTable {
     pub fn ping() {}
 
     /// "The most important procedure a Kademlia participant must perform is to locate
-    /// the k closest nodes to some given node ID" - Kademlia Paper
+    /// the k closest nodes to some given node ID"
+    ///     - Kademlia Paper
     ///
     /// Recieves an id request and returns node information on nodes within
-    /// *its closest bucket* to that id. *Slight modification*
+    /// *its closest bucket* (instead of k-closest nodes) to that id.
     pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
         let result = self.search_table(id);
         let mut bucket = self.buckets[result.bucket_index];
 
-        if result.found == true {
+        if result.found {
             // Returns Node
             FindNodeResult::Found(bucket[result.column_index])
         } else {
             let mut known_nodes = Vec::new();
-            for i in 0..BUCKET_SIZE {
-                if bucket[i].is_some() {
-                    known_nodes.push(bucket[i].clone())
+
+            for node in bucket.iter() {
+                if node.is_some() {
+                    // Should I be dereferencing the node to send to others?  Or copy the node to share?
+                    known_nodes.push(*node)
                 }
             }
-            // Returns nodes within local node's closest bucket
+            // Returns nodes within local node's closest bucket to queried node
             FindNodeResult::NotFound(known_nodes)
         }
     }
     // TODO:
     pub fn find_value() {}
 
+    // TODO:
     /// Instructs a node to store a key, value pair for later retrieval. "Most operations are implemented
     /// in terms of the lookup proceedure. To store a <key,value> pair, a participant locates the k closes
     /// nodes to the key and sends them store RPCs".
@@ -81,10 +84,10 @@ impl KbucketTable {
         let result = self.search_table(node.node_id);
         let mut bucket = self.buckets[result.bucket_index];
 
-        if result.found == false {
+        if !result.found {
             bucket[result.column_index] = Some(node)
         } else {
-            println!("Node's already in our table")
+            println!("Node is already in our table")
         }
     }
 
@@ -94,8 +97,8 @@ impl KbucketTable {
         let bucket_index = self.find_bucket_index(id);
         let mut bucket = self.buckets[bucket_index];
 
-        for i in 0..BUCKET_SIZE {
-            match bucket[i] {
+        for (i, node) in bucket.iter().enumerate() {
+            match node {
                 Some(bucket_node) => {
                     if bucket_node.node_id == id {
                         SearchResult {
@@ -107,7 +110,7 @@ impl KbucketTable {
                         continue;
                     };
                 }
-                None => {
+                _ => {
                     last_empty_index = i;
                 }
             }
@@ -134,11 +137,11 @@ impl KbucketTable {
     }
 }
 
-// TODO:  Implement real deal tests!
-
-// Test find_node()      **Requires adding nodes to our table**
-// Test search_table()
-// Test add_node()
+/// TODO:  Implement real deal tests!
+///
+/// Test find_node()      **Requires adding nodes to our table**
+/// Test search_table()
+/// Test add_node()
 #[cfg(test)]
 mod tests {
     use super::*;
