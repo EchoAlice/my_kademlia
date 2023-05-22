@@ -85,6 +85,7 @@ impl KbucketTable {
         let mut bucket = self.buckets[result.bucket_index];
 
         if !result.found {
+            println!("Node is added");
             bucket[result.column_index] = Some(node)
         } else {
             println!("Node is already in our table")
@@ -145,4 +146,27 @@ impl KbucketTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::helper::{create_dummy_nodes, create_test_table};
+
+    #[test]
+    fn add_node() {
+        let dummy_nodes = create_dummy_nodes();
+        let mut table = create_test_table(dummy_nodes.clone());
+        println!("Empty Table {:?}", table);
+        println!("\n");
+        table.add_node(dummy_nodes[1]);
+        println!("Node added to table {:?}", table);
+    }
+
+    #[test]
+    fn test_search_table() {
+        let dummy_nodes = create_dummy_nodes();
+        let mut table = create_test_table(dummy_nodes.clone());
+    }
+
+    #[test]
+    fn find_node() {
+        let dummy_nodes = create_dummy_nodes();
+        let table = create_test_table(dummy_nodes.clone());
+    }
 }
