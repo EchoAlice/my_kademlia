@@ -1,146 +1,148 @@
 #![allow(unused)]
 
-use std::string::String;
+use crate::helper::{Identifier, Node, U256};
+use std::collections::HashMap;
 use uint::*;
-use crate::helper::{Identifier, 
-    Node,
-    U256,
-};
 
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<Node>; BUCKET_SIZE];
 
-pub enum StoreValue {
-    Node(Node),
-    Sample(String),  // Define a sample, and change the type to a sample
+pub enum FindNodeResult {
+    // I don't think this should be "Option<T>".  Fix later
+    Found(Option<Node>),
+    NotFound(Vec<Option<Node>>),
+}
+pub struct SearchResult {
+    pub found: bool,
+    pub bucket_index: usize,
+    pub column_index: usize,
 }
 
-
-
-// Bucket 0: Closest peers from node in network.   
+// Bucket 0: Closest peers from node in network.
 // Bucket 255: Farthest peers from node in network
-// Each k-bucket is kept sorted by time last seen.  Least recently seen -> Most recently seen node
 #[derive(Debug)]
 pub struct KbucketTable {
     pub local_node_id: Identifier,
     pub buckets: [Bucket; MAX_BUCKETS],
-    store: std::collections::HashMap<Vec<u8>, Vec<u8>>,   // Same storage as portal network.
+    store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as portal network.
 }
 
 impl KbucketTable {
     pub fn new(local_node_id: Identifier) -> Self {
-       let empty_bucket: [Option<Node>; BUCKET_SIZE] = [None; BUCKET_SIZE];
-        
         Self {
-            local_node_id: local_node_id,
-            buckets: [empty_bucket; MAX_BUCKETS],
-            store: std::collections::HashMap::new(),
+            local_node_id,
+            buckets: [Default::default(); MAX_BUCKETS],
+            store: Default::default(),
         }
     }
-    pub fn store(&mut self, key: Identifier, value: StoreValue) {
-        match value {
-            StoreValue::Node(value) => {
-                println!("Store a node");
-                self.add_node(value);
-            }
-            // TODO:
-            StoreValue::Sample(value) => {
-                println!("Store a value");
-                self.add_store();
-            }
-        }
-    }
-    pub fn find_node(&mut self, y: Node) -> Option<Node> {
-        let bucket_index = self.find_bucket(y.node_id);
-        let mut bucket = self.buckets[bucket_index];
-        let result = self.search_bucket(bucket, y);
+    // Protocol's RPCs:
+    // ---------------------------------------------------------------------------------------------------
+    // TODO:
+    // Probes a node to see if it's online
+    pub fn ping() {}
 
-        match result.0 {
-            true => {
-                println!("Node[bucket_index]: {:?}", bucket[result.1]);
-                let found_node = bucket[result.1];
-                return found_node
+    /// "The most important procedure a Kademlia participant must perform is to locate
+    /// the k closest nodes to some given node ID"
+    ///     - Kademlia Paper
+    ///
+    /// Recieves an id request and returns node information on nodes within
+    /// *its closest bucket* (instead of k-closest nodes) to that id.
+    pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
+        let result = self.search_table(id);
+        let mut bucket = self.buckets[result.bucket_index];
+
+        if result.found {
+            // Returns Node
+            FindNodeResult::Found(bucket[result.column_index])
+        } else {
+            let mut known_nodes = Vec::new();
+
+            for node in bucket.iter() {
+                if node.is_some() {
+                    // Should I be dereferencing the node to send to others?  Or copy the node to share?
+                    known_nodes.push(*node)
+                }
             }
-            false => {
-                println!("Node is not stored");
-                return None
-            }
+            // Returns nodes within local node's closest bucket to queried node
+            FindNodeResult::NotFound(known_nodes)
         }
     }
     // TODO:
     pub fn find_value() {}
-    pub fn ping() {}
-    
-    // Don't expose functions from here down.
-    // ---------------------------------------------------------------------------------------------------
-    
-    //  Add our node to the bucket if it's not already there.
-    pub fn add_node(&mut self, y: Node) {
-        // TODO: Replace these 3 lines w/ find_node().  Kind of complex to do... Maybe later
-        let bucket_index = self.find_bucket(y.node_id);
-        let mut bucket = self.buckets[bucket_index];
-        let result = self.search_bucket(bucket, y);
 
-        match result.0 {
-            // Node was already stored
-            true => {
-                println!("Node was already stored");
-                return 
-            }
-            // Node wasn't already stored
-            false => {
-                bucket[result.1] = Some(y);
-                self.buckets[bucket_index] = bucket;
-                println!("Node is now stored in routing table");
-                return
-            }
+    // TODO:
+    /// Instructs a node to store a key, value pair for later retrieval. "Most operations are implemented
+    /// in terms of the lookup proceedure. To store a <key,value> pair, a participant locates the k closes
+    /// nodes to the key and sends them store RPCs".
+    pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
+
+    // Non-RPCs:
+    // ---------------------------------------------------------------------------------------------------
+    pub fn add_node(&mut self, node: Node) {
+        let result = self.search_table(node.node_id);
+        let mut bucket = self.buckets[result.bucket_index];
+
+        if !result.found {
+            bucket[result.column_index] = Some(node)
+        } else {
+            println!("Node is already in our table")
         }
     }
 
-    // TODO:
-    fn add_store(&self) {
-    
-    }
-
-    fn find_bucket(&self, identifier: Identifier) -> usize {
-        let x = U256::from(self.local_node_id);
-        let y = U256::from(identifier);
-        let xor_distance = x^y;
-        
-        let bucket_index = ((256 - xor_distance.leading_zeros()) as usize);
-        println!("Xor distance leading zeros, {}", xor_distance.leading_zeros());
-        println!("Bucket index for given key: {}", bucket_index);
-        bucket_index
-    }
-
-    // How can i make this return value less confusing?
-    fn search_bucket(&self, bucket: Bucket, node: Node) -> (bool, usize) {
+    // Searches table for node specified.
+    fn search_table(&self, id: Identifier) -> SearchResult {
         let mut last_empty_index = 0;
-        for i in 0..BUCKET_SIZE { 
-            match bucket[i] {
+        let bucket_index = self.find_bucket_index(id);
+        let mut bucket = self.buckets[bucket_index];
+
+        for (i, node) in bucket.iter().enumerate() {
+            match node {
                 Some(bucket_node) => {
-                    // If node was already in bucket -->  return (it's index, true).
-                    if bucket_node == node {
-                        return (true, i)
-                    }
-                    else {continue};
+                    if bucket_node.node_id == id {
+                        SearchResult {
+                            found: true,
+                            bucket_index,
+                            column_index: i,
+                        }
+                    } else {
+                        continue;
+                    };
                 }
-                None => {
+                _ => {
                     last_empty_index = i;
                 }
             }
         }
-        // If node wasn't already in bucket -->  return (largest available index, false)
-        println!("Last empty index: {}", last_empty_index);
-        return (false, last_empty_index)
+        SearchResult {
+            found: false,
+            bucket_index,
+            column_index: last_empty_index,
+        }
+    }
+
+    fn find_bucket_index(&self, identifier: Identifier) -> usize {
+        let x = U256::from(self.local_node_id);
+        let y = U256::from(identifier);
+        let xor_distance = x ^ y;
+
+        let bucket_index = MAX_BUCKETS - (xor_distance.leading_zeros() as usize);
+        println!(
+            "Xor distance leading zeros, {}",
+            xor_distance.leading_zeros()
+        );
+        println!("Bucket index for given key: {}", bucket_index);
+        bucket_index
     }
 }
 
-
+/// TODO:  Implement real deal tests!
+///
+/// Test find_node()      **Requires adding nodes to our table**
+/// Test search_table()
+/// Test add_node()
 #[cfg(test)]
 mod tests {
     use super::*;
-
 }

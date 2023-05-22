@@ -1,22 +1,20 @@
 #![allow(unused)]
 
-
-pub mod kbucket;
 pub mod helper;
+pub mod kbucket;
 
-// Functionalities to expose for our Kademlia client:
+// Expose for our Kademlia client RPCs here:
 // TODO:
-fn ping() {
-}
 
-// TODO:
-fn store() {
-}
+/*
+fn ping() {}
 
 // TODO:
-fn find_node() {
-}
+fn store() {}
 
 // TODO:
-fn find_value() {
-}
+fn find_node() {}
+
+// TODO:
+fn find_value() {}
+ */
