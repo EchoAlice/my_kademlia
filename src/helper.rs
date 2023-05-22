@@ -1,3 +1,5 @@
+#![allow(clippy::assign_op_pattern)]
+
 use std::net::Ipv4Addr;
 use uint::*;
 
