@@ -1,3 +1,6 @@
+// NOTE: Silences `clippy` warning that originates from
+// the `construct_uint` macro which we do not wish
+// to address further
 #![allow(clippy::assign_op_pattern)]
 
 use std::net::Ipv4Addr;
