@@ -37,6 +37,7 @@ impl KbucketTable {
             store: Default::default(),
         }
     }
+
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
     // TODO:
@@ -71,26 +72,25 @@ impl KbucketTable {
     pub fn find_value() {}
 
     // TODO:
-    /// Instructs a node to store a key, value pair for later retrieval. "Most operations are implemented
-    /// in terms of the lookup proceedure. To store a <key,value> pair, a participant locates the k closes
-    /// nodes to the key and sends them store RPCs".
+    /// Instructs a node to store a key, value pair for later retrieval.
+    ///
+    /// "Most operations are implemented in terms of the lookup proceedure. To store a
+    /// <key,value> pair, a participant locates the k closes nodes to the key and sends them store RPCs".
     pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
     pub fn add_node(&mut self, node: Node) {
         let result = self.search_table(node.node_id);
-        let mut bucket = self.buckets[result.bucket_index];
 
         if !result.found {
-            println!("Node is added");
-            bucket[result.column_index] = Some(node)
+            self.buckets[result.bucket_index][result.column_index] = Some(node);
+            println!("Updated table: {:?}", self);
         } else {
             println!("Node is already in our table")
         }
     }
 
-    // Searches table for node specified.
     fn search_table(&self, id: Identifier) -> SearchResult {
         let mut last_empty_index = 0;
         let bucket_index = self.find_bucket_index(id);
@@ -126,18 +126,11 @@ impl KbucketTable {
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
 
-        let bucket_index = MAX_BUCKETS - (xor_distance.leading_zeros() as usize);
-        println!(
-            "Xor distance leading zeros, {}",
-            xor_distance.leading_zeros()
-        );
-        println!("Bucket index for given key: {}", bucket_index);
-        bucket_index
+        (xor_distance.leading_zeros() - 1) as usize
     }
 }
 
 /// TODO:  Implement real deal tests!
-///
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,10 +140,7 @@ mod tests {
     fn add_node() {
         let dummy_nodes = mk_nodes();
         let mut table = mk_table(dummy_nodes.clone());
-        println!("Empty Table {:?}", table);
-        println!("\n");
-        table.add_node(dummy_nodes[1]);
-        println!("Node added to table {:?}", table);
+        let result = table.add_node(dummy_nodes[1]);
     }
 
     #[test]
