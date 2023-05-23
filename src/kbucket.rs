@@ -14,6 +14,7 @@ pub enum FindNodeResult {
     Found(Option<Node>),
     NotFound(Vec<Option<Node>>),
 }
+#[derive(Debug)]
 pub struct SearchResult {
     pub found: bool,
     pub bucket_index: usize,
@@ -80,14 +81,15 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    pub fn add_node(&mut self, node: Node) {
+    fn add_node(&mut self, node: Node) -> bool {
         let result = self.search_table(node.node_id);
 
         if !result.found {
             self.buckets[result.bucket_index][result.column_index] = Some(node);
-            println!("Updated table: {:?}", self);
+            true
         } else {
-            println!("Node is already in our table")
+            println!("Node is already in our table");
+            false
         }
     }
 
@@ -100,11 +102,11 @@ impl KbucketTable {
             match node {
                 Some(bucket_node) => {
                     if bucket_node.node_id == id {
-                        SearchResult {
+                        return SearchResult {
                             found: true,
                             bucket_index,
                             column_index: i,
-                        }
+                        };
                     } else {
                         continue;
                     };
@@ -114,11 +116,11 @@ impl KbucketTable {
                 }
             }
         }
-        SearchResult {
+        return SearchResult {
             found: false,
             bucket_index,
             column_index: last_empty_index,
-        }
+        };
     }
 
     fn find_bucket_index(&self, identifier: Identifier) -> usize {
@@ -136,17 +138,36 @@ mod tests {
     use super::*;
     use crate::helper::testing::{mk_nodes, mk_table};
 
+    // Run "cargo test add_node -- --nocapture" to see that node was added to routing table.
     #[test]
     fn add_node() {
         let dummy_nodes = mk_nodes();
         let mut table = mk_table(dummy_nodes.clone());
         let result = table.add_node(dummy_nodes[1]);
+        assert_eq!(true, result);
+        println!("Updated table: {:?}", table);
+    }
+    #[test]
+    fn add_redundant_node() {
+        let dummy_nodes = mk_nodes();
+        let mut table = mk_table(dummy_nodes.clone());
+        let result = table.add_node(dummy_nodes[1]);
+        assert_eq!(true, result);
+        println!("Updated table: {:?}", table);
+        println!("\n");
+        let result = table.add_node(dummy_nodes[1]);
+        assert_eq!(false, result);
+        println!("2nd updated table: {:?}", table);
     }
 
     #[test]
-    fn test_search_table() {
+    fn search_table() {
         let dummy_nodes = mk_nodes();
         let mut table = mk_table(dummy_nodes.clone());
+        table.add_node(dummy_nodes[1]);
+
+        let result = table.search_table(dummy_nodes[1].node_id);
+        assert_eq!(true, result.found);
     }
 
     #[test]
