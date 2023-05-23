@@ -54,7 +54,6 @@ impl KbucketTable {
         let mut bucket = self.buckets[result.bucket_index];
 
         if result.found {
-            // Returns Node
             FindNodeResult::Found(bucket[result.column_index])
         } else {
             let mut known_nodes = Vec::new();
@@ -65,7 +64,6 @@ impl KbucketTable {
                     known_nodes.push(*node)
                 }
             }
-            // Returns nodes within local node's closest bucket to queried node
             FindNodeResult::NotFound(known_nodes)
         }
     }
@@ -140,18 +138,15 @@ impl KbucketTable {
 
 /// TODO:  Implement real deal tests!
 ///
-/// Test find_node()      **Requires adding nodes to our table**
-/// Test search_table()
-/// Test add_node()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helper::{create_dummy_nodes, create_test_table};
+    use crate::helper::testing::{mk_nodes, mk_table};
 
     #[test]
     fn add_node() {
-        let dummy_nodes = create_dummy_nodes();
-        let mut table = create_test_table(dummy_nodes.clone());
+        let dummy_nodes = mk_nodes();
+        let mut table = mk_table(dummy_nodes.clone());
         println!("Empty Table {:?}", table);
         println!("\n");
         table.add_node(dummy_nodes[1]);
@@ -160,13 +155,13 @@ mod tests {
 
     #[test]
     fn test_search_table() {
-        let dummy_nodes = create_dummy_nodes();
-        let mut table = create_test_table(dummy_nodes.clone());
+        let dummy_nodes = mk_nodes();
+        let mut table = mk_table(dummy_nodes.clone());
     }
 
     #[test]
     fn find_node() {
-        let dummy_nodes = create_dummy_nodes();
-        let table = create_test_table(dummy_nodes.clone());
+        let dummy_nodes = mk_nodes();
+        let table = mk_table(dummy_nodes.clone());
     }
 }

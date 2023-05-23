@@ -18,45 +18,34 @@ pub struct Node {
     pub node_id: Identifier,
 }
 
-// For testing. TODO: Create mod
-pub fn create_dummy_nodes() -> Vec<Node> {
-    // Should these nodes have different IP addresses?  Stupid question- but I'm asking anyways   :P
-    let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
-    let port_start = 9000_u16;
-    let mut our_nodes = Vec::new();
+pub mod testing {
+    use super::*;
 
-    let local_node = Node {
-        ip_address: listen_addr,
-        udp_port: port_start,
-        node_id: [0_u8; 32],
-    };
-    our_nodes.push(local_node);
-    let first_node = Node {
-        ip_address: listen_addr,
-        udp_port: port_start + 1,
-        node_id: [1_u8; 32],
-    };
-    our_nodes.push(first_node);
-    let second_node = Node {
-        ip_address: listen_addr,
-        udp_port: port_start + 2,
-        node_id: [2_u8; 32],
-    };
-    our_nodes.push(second_node);
-    let third_node = Node {
-        ip_address: listen_addr,
-        udp_port: port_start + 3,
-        node_id: [3_u8; 32],
-    };
-    our_nodes.push(third_node);
+    pub fn mk_nodes() -> Vec<Node> {
+        // Should these nodes have different IP addresses?
+        let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
+        let port_start = 9000_u16;
 
-    our_nodes
-}
+        let our_nodes: Vec<Node> = (0..4)
+            .into_iter()
+            .map(|i| mk_node(&listen_addr, port_start, i))
+            .collect();
 
-// Create a dummy table to use for tests
-pub fn create_test_table(dummy_nodes: Vec<Node>) -> KbucketTable {
-    let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
-    let port_start = 9000_u16;
+        our_nodes
+    }
 
-    KbucketTable::new(dummy_nodes[0].node_id)
+    fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: usize) -> Node {
+        Node {
+            ip_address: listen_addr.clone(),
+            udp_port: port_start + index as u16,
+            node_id: [index as u8; 32],
+        }
+    }
+
+    pub fn mk_table(dummy_nodes: Vec<Node>) -> KbucketTable {
+        let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
+        let port_start = 9000_u16;
+
+        KbucketTable::new(dummy_nodes[0].node_id)
+    }
 }
