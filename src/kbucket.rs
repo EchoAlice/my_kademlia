@@ -84,6 +84,14 @@ impl KbucketTable {
     fn add_node(&mut self, node: Node) -> bool {
         let result = self.search_table(node.node_id);
 
+        // TODO:  Re-implement all logic with   enum Search
+        // match result {
+        //     SearchResult::Success(bucket_index, column_index) => {
+        //         // set node, return true
+        //     }
+        //     SearchResult::Failure(bucket, col) => false,
+        // }
+
         if !result.found {
             self.buckets[result.bucket_index][result.column_index] = Some(node);
             true
@@ -128,11 +136,10 @@ impl KbucketTable {
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
 
-        (xor_distance.leading_zeros() - 1) as usize
+        MAX_BUCKETS - ((xor_distance.leading_zeros() - 1) as usize)
     }
 }
 
-/// TODO:  Implement real deal tests!
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,9 +162,9 @@ mod tests {
         assert_eq!(true, result);
         println!("Updated table: {:?}", table);
         println!("\n");
+
         let result = table.add_node(dummy_nodes[1]);
         assert_eq!(false, result);
-        println!("2nd updated table: {:?}", table);
     }
 
     #[test]
@@ -170,9 +177,23 @@ mod tests {
         assert_eq!(true, result.found);
     }
 
+    /*
+    TODO:
+
+    Test Design:
+        - Populate table with nodes
+        - Which nodes *should* be in the same buckets?
+     */
     #[test]
     fn find_node() {
         let dummy_nodes = mk_nodes();
-        let table = mk_table(dummy_nodes.clone());
+        let mut table = mk_table(dummy_nodes.clone());
+
+        for i in 1..dummy_nodes.len() {
+            table.add_node(dummy_nodes[i]);
+        }
+        println!("Updated table: {:?}", table);
     }
+
+    // TODO?:  XOR Test
 }
