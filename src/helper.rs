@@ -26,7 +26,7 @@ pub mod testing {
         let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
 
-        let our_nodes: Vec<Node> = (0..4)
+        let our_nodes: Vec<Node> = (0..5)
             .into_iter()
             .map(|i| mk_node(&listen_addr, port_start, i))
             .collect();

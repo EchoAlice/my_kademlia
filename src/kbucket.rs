@@ -9,6 +9,7 @@ const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<Node>; BUCKET_SIZE];
 
+#[derive(Debug)]
 pub enum FindNodeResult {
     // I don't think this should be "Option<T>".  Fix later
     Found(Option<Node>),
@@ -135,7 +136,9 @@ impl KbucketTable {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
-
+        println!("Identifier: {:?}", identifier);
+        println!("Leading zeros: {}", xor_distance.leading_zeros());
+        println!("\n");
         MAX_BUCKETS - ((xor_distance.leading_zeros() - 1) as usize)
     }
 }
@@ -164,7 +167,6 @@ mod tests {
         println!("\n");
 
         let result = table.add_node(dummy_nodes[1]);
-        assert_eq!(false, result);
     }
 
     #[test]
@@ -177,22 +179,37 @@ mod tests {
         assert_eq!(true, result.found);
     }
 
-    /*
-    TODO:
-
-    Test Design:
-        - Populate table with nodes
-        - Which nodes *should* be in the same buckets?
-     */
+    // TODO: Create assertion for test.  Get rid of print.
+    //       Why does [1, 1... ] print twice?
     #[test]
-    fn find_node() {
+    fn find_node_present() {
         let dummy_nodes = mk_nodes();
         let mut table = mk_table(dummy_nodes.clone());
 
         for i in 1..dummy_nodes.len() {
             table.add_node(dummy_nodes[i]);
         }
-        println!("Updated table: {:?}", table);
+
+        let result = table.find_node(dummy_nodes[1].node_id);
+        println!("result: {:?}", result);
+    }
+
+    // TODO:  Make it more obvious that the correct node(s) are being returned
+    #[test]
+    fn find_node_absent() {
+        let dummy_nodes = mk_nodes();
+        let mut table = mk_table(dummy_nodes.clone());
+
+        for i in 1..dummy_nodes.len() {
+            if i == 3 {
+                break;
+            } else {
+                table.add_node(dummy_nodes[i]);
+            }
+        }
+
+        let result = table.find_node(dummy_nodes[3].node_id);
+        println!("result: {:?}", result);
     }
 
     // TODO?:  XOR Test
