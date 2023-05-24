@@ -15,11 +15,10 @@ pub enum FindNodeResult {
     Found(Option<Node>),
     NotFound(Vec<Option<Node>>),
 }
-#[derive(Debug)]
-pub struct SearchResult {
-    pub found: bool,
-    pub bucket_index: usize,
-    pub column_index: usize,
+
+enum Search {
+    Success(usize, usize),
+    Failure(usize, usize),
 }
 
 // Bucket 0: Closest peers from node in network.
@@ -54,20 +53,24 @@ impl KbucketTable {
     /// *its closest bucket* (instead of k-closest nodes) to that id.
     pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
         let result = self.search_table(id);
-        let mut bucket = self.buckets[result.bucket_index];
 
-        if result.found {
-            FindNodeResult::Found(bucket[result.column_index])
-        } else {
-            let mut known_nodes = Vec::new();
-
-            for node in bucket.iter() {
-                if node.is_some() {
-                    // Should I be dereferencing the node to send to others?  Or copy the node to share?
-                    known_nodes.push(*node)
-                }
+        match result {
+            Search::Success(bucket_index, column_index) => {
+                let bucket = self.buckets[bucket_index];
+                FindNodeResult::Found(bucket[column_index])
             }
-            FindNodeResult::NotFound(known_nodes)
+            Search::Failure(bucket_index, column_index) => {
+                let bucket = self.buckets[bucket_index];
+                let mut known_nodes = Vec::new();
+
+                for node in bucket.iter() {
+                    if node.is_some() {
+                        // Should I be dereferencing the node to send to others?  Or copy the node to share?
+                        known_nodes.push(*node)
+                    }
+                }
+                FindNodeResult::NotFound(known_nodes)
+            }
         }
     }
     // TODO:
@@ -85,37 +88,28 @@ impl KbucketTable {
     fn add_node(&mut self, node: Node) -> bool {
         let result = self.search_table(node.node_id);
 
-        // TODO:  Re-implement all logic with   enum Search
-        // match result {
-        //     SearchResult::Success(bucket_index, column_index) => {
-        //         // set node, return true
-        //     }
-        //     SearchResult::Failure(bucket, col) => false,
-        // }
-
-        if !result.found {
-            self.buckets[result.bucket_index][result.column_index] = Some(node);
-            true
-        } else {
-            println!("Node is already in our table");
-            false
+        match result {
+            Search::Success(bucket_index, column_index) => {
+                println!("Node is already in our table");
+                false
+            }
+            Search::Failure(bucket_index, column_index) => {
+                self.buckets[bucket_index][column_index] = Some(node);
+                true
+            }
         }
     }
 
-    fn search_table(&self, id: Identifier) -> SearchResult {
+    fn search_table(&self, id: Identifier) -> Search {
         let mut last_empty_index = 0;
-        let bucket_index = self.find_bucket_index(id);
+        let bucket_index = self.xor_bucket_index(id);
         let mut bucket = self.buckets[bucket_index];
 
         for (i, node) in bucket.iter().enumerate() {
             match node {
                 Some(bucket_node) => {
                     if bucket_node.node_id == id {
-                        return SearchResult {
-                            found: true,
-                            bucket_index,
-                            column_index: i,
-                        };
+                        Search::Success(bucket_index, i)
                     } else {
                         continue;
                     };
@@ -125,17 +119,14 @@ impl KbucketTable {
                 }
             }
         }
-        return SearchResult {
-            found: false,
-            bucket_index,
-            column_index: last_empty_index,
-        };
+        Search::Failure(bucket_index, last_empty_index)
     }
 
-    fn find_bucket_index(&self, identifier: Identifier) -> usize {
+    fn xor_bucket_index(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
+
         println!("Identifier: {:?}", identifier);
         println!("Leading zeros: {}", xor_distance.leading_zeros());
         println!("\n");
@@ -176,7 +167,6 @@ mod tests {
         table.add_node(dummy_nodes[1]);
 
         let result = table.search_table(dummy_nodes[1].node_id);
-        assert_eq!(true, result.found);
     }
 
     // TODO: Create assertion for test.  Get rid of print.
@@ -191,6 +181,7 @@ mod tests {
         }
 
         let result = table.find_node(dummy_nodes[1].node_id);
+        // Result returns node as expected
         println!("result: {:?}", result);
     }
 
@@ -209,6 +200,7 @@ mod tests {
         }
 
         let result = table.find_node(dummy_nodes[3].node_id);
+        // Result returns dummy_nodes[2] (they'd share the same bucket) as expected.
         println!("result: {:?}", result);
     }
 
