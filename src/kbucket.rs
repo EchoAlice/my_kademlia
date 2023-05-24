@@ -2,6 +2,7 @@
 
 use crate::helper::{Identifier, Node, U256};
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use uint::*;
 
 const BUCKET_SIZE: usize = 20;
@@ -85,17 +86,15 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    fn add_node(&mut self, node: Node) -> bool {
+    fn add_node(&mut self, node: Node) {
         let result = self.search_table(node.node_id);
 
         match result {
             Search::Success(bucket_index, column_index) => {
                 println!("Node is already in our table");
-                false
             }
             Search::Failure(bucket_index, column_index) => {
                 self.buckets[bucket_index][column_index] = Some(node);
-                true
             }
         }
     }
@@ -134,26 +133,38 @@ impl KbucketTable {
     }
 }
 
+// TODO:  Make better assertions
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helper::testing::{mk_nodes, mk_table};
 
-    // Run "cargo test add_node -- --nocapture" to see that node was added to routing table.
-    #[test]
-    fn add_node() {
-        let dummy_nodes = mk_nodes();
-        let mut table = mk_table(dummy_nodes.clone());
-        let result = table.add_node(dummy_nodes[1]);
-        assert_eq!(true, result);
-        println!("Updated table: {:?}", table);
+    // Add parameter for number of nodes
+    pub fn mk_nodes() -> Vec<Node> {
+        // Should these nodes have different IP addresses?
+        let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
+        let port_start = 9000_u16;
+
+        let our_nodes: Vec<Node> = (0..5)
+            .into_iter()
+            .map(|i| mk_node(&listen_addr, port_start, i))
+            .collect();
+
+        our_nodes
     }
+
+    fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: usize) -> Node {
+        Node {
+            ip_address: listen_addr.clone(),
+            udp_port: port_start + index as u16,
+            node_id: [index as u8; 32],
+        }
+    }
+
     #[test]
     fn add_redundant_node() {
         let dummy_nodes = mk_nodes();
-        let mut table = mk_table(dummy_nodes.clone());
+        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
         let result = table.add_node(dummy_nodes[1]);
-        assert_eq!(true, result);
         println!("Updated table: {:?}", table);
         println!("\n");
 
@@ -163,7 +174,7 @@ mod tests {
     #[test]
     fn search_table() {
         let dummy_nodes = mk_nodes();
-        let mut table = mk_table(dummy_nodes.clone());
+        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
         table.add_node(dummy_nodes[1]);
 
         let result = table.search_table(dummy_nodes[1].node_id);
@@ -174,7 +185,7 @@ mod tests {
     #[test]
     fn find_node_present() {
         let dummy_nodes = mk_nodes();
-        let mut table = mk_table(dummy_nodes.clone());
+        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
 
         for i in 1..dummy_nodes.len() {
             table.add_node(dummy_nodes[i]);
@@ -189,7 +200,7 @@ mod tests {
     #[test]
     fn find_node_absent() {
         let dummy_nodes = mk_nodes();
-        let mut table = mk_table(dummy_nodes.clone());
+        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
 
         for i in 1..dummy_nodes.len() {
             if i == 3 {

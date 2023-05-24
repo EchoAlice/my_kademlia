@@ -21,6 +21,7 @@ pub struct Node {
 pub mod testing {
     use super::*;
 
+    // Add parameter for number of nodes
     pub fn mk_nodes() -> Vec<Node> {
         // Should these nodes have different IP addresses?
         let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
@@ -42,10 +43,6 @@ pub mod testing {
         }
     }
 
-    pub fn mk_table(dummy_nodes: Vec<Node>) -> KbucketTable {
-        let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
-        let port_start = 9000_u16;
-
-        KbucketTable::new(dummy_nodes[0].node_id)
-    }
+    // TODO:
+    // pub fn populate_table {}
 }
