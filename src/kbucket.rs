@@ -87,12 +87,13 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    fn add_node(&mut self, node: Node) {
+    fn add_node(&mut self, node: Node) -> bool {
         let result = self.search_table(node.node_id);
         match result {
-            Search::Success(bucket_index, column_index) => {}
+            Search::Success(bucket_index, column_index) => false,
             Search::Failure(bucket_index, column_index) => {
                 self.buckets[bucket_index][column_index] = Some(node);
+                true
             }
         }
     }
@@ -158,18 +159,15 @@ mod tests {
         }
     }
 
-    // Current: WIP
     #[test]
     fn add_redundant_node() {
         let (local_node, dummy_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
-        table.add_node(dummy_nodes[0]);
-        table.add_node(dummy_nodes[0]);
-        println!("Routing table: {:?}", table);
 
-        // Search entire table, count the number of times the node is in the table
-
-        // TODO: Assert node_found == 1
+        let result = table.add_node(dummy_nodes[0]);
+        assert!(result);
+        let result2 = table.add_node(dummy_nodes[0]);
+        assert!(!result2);
     }
 
     #[test]
