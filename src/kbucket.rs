@@ -169,20 +169,22 @@ mod tests {
         assert!(!result2);
     }
 
-    // TODO: Figure out why dummy_nodes[1] is printed twice
     #[test]
     fn find_node_present() {
         let (local_node, dummy_nodes) = mk_nodes(5);
         let mut table = KbucketTable::new(local_node.node_id);
-
         for i in 1..dummy_nodes.len() {
             table.add_node(dummy_nodes[i]);
         }
 
-        // Returns node as expected
-        let result = table.find_node(dummy_nodes[1].node_id);
-        println!("result: {:?}", result);
-        // TODO: Create assertion
+        let node_to_find = dummy_nodes[1];
+        let result = table.find_node(node_to_find.node_id);
+        match result {
+            FindNodeResult::Found(Some(node)) => {
+                assert_eq!(node.node_id, node_to_find.node_id)
+            }
+            _ => panic!("Node should have been found"),
+        }
     }
 
     // TODO:  Make it more obvious that the correct node(s) are being returned
