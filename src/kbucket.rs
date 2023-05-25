@@ -17,6 +17,7 @@ pub enum FindNodeResult {
     NotFound(Vec<Option<Node>>),
 }
 
+#[derive(Debug)]
 enum Search {
     Success(usize, usize),
     Failure(usize, usize),
@@ -88,11 +89,8 @@ impl KbucketTable {
     // ---------------------------------------------------------------------------------------------------
     fn add_node(&mut self, node: Node) {
         let result = self.search_table(node.node_id);
-
         match result {
-            Search::Success(bucket_index, column_index) => {
-                println!("Node is already in our table");
-            }
+            Search::Success(bucket_index, column_index) => {}
             Search::Failure(bucket_index, column_index) => {
                 self.buckets[bucket_index][column_index] = Some(node);
             }
@@ -108,7 +106,7 @@ impl KbucketTable {
             match node {
                 Some(bucket_node) => {
                     if bucket_node.node_id == id {
-                        Search::Success(bucket_index, i)
+                        return Search::Success(bucket_index, i);
                     } else {
                         continue;
                     };
@@ -118,7 +116,7 @@ impl KbucketTable {
                 }
             }
         }
-        Search::Failure(bucket_index, last_empty_index)
+        return Search::Failure(bucket_index, last_empty_index);
     }
 
     fn xor_bucket_index(&self, identifier: Identifier) -> usize {
@@ -165,9 +163,13 @@ mod tests {
     fn add_redundant_node() {
         let (local_node, dummy_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
-        let result = table.add_node(dummy_nodes[0]);
+        table.add_node(dummy_nodes[0]);
+        table.add_node(dummy_nodes[0]);
         println!("Routing table: {:?}", table);
-        // TODO: Create assertion
+
+        // Search entire table, count the number of times the node is in the table
+
+        // TODO: Assert node_found == 1
     }
 
     #[test]
