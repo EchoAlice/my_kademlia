@@ -12,7 +12,6 @@ type Bucket = [Option<Node>; BUCKET_SIZE];
 
 #[derive(Debug)]
 pub enum FindNodeResult {
-    // I don't think this should be "Option<T>".  Fix later
     Found(Option<Node>),
     NotFound(Vec<Option<Node>>),
 }
@@ -129,7 +128,7 @@ impl KbucketTable {
     }
 }
 
-// TODO:  Make better assertions
+// WIP:  Make better assertions
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,16 +167,6 @@ mod tests {
         assert!(result);
         let result2 = table.add_node(dummy_nodes[0]);
         assert!(!result2);
-    }
-
-    #[test]
-    fn search_table() {
-        let (local_node, dummy_nodes) = mk_nodes(2);
-        let mut table = KbucketTable::new(local_node.node_id);
-        table.add_node(dummy_nodes[1]);
-
-        let result = table.search_table(dummy_nodes[0].node_id);
-        // TODO: Create assertion
     }
 
     // TODO: Figure out why dummy_nodes[1] is printed twice
