@@ -126,9 +126,6 @@ impl KbucketTable {
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
 
-        println!("Identifier: {:?}", identifier);
-        println!("Leading zeros: {}", xor_distance.leading_zeros());
-        println!("\n");
         MAX_BUCKETS - ((xor_distance.leading_zeros() - 1) as usize)
     }
 }
@@ -138,18 +135,21 @@ impl KbucketTable {
 mod tests {
     use super::*;
 
-    // Add parameter for number of nodes
-    pub fn mk_nodes() -> Vec<Node> {
-        // Should these nodes have different IP addresses?
+    fn mk_nodes(n: usize) -> (Node, Vec<Node>) {
         let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
 
-        let our_nodes: Vec<Node> = (0..5)
+        let our_nodes: Vec<Node> = (0..n)
             .into_iter()
             .map(|i| mk_node(&listen_addr, port_start, i))
             .collect();
 
-        our_nodes
+        if let Some((local_node, other_nodes)) = our_nodes.split_first() {
+            let other_nodes = other_nodes.to_vec();
+            (local_node.clone(), other_nodes.clone())
+        } else {
+            panic!("Not enough nodes were created");
+        }
     }
 
     fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: usize) -> Node {
@@ -160,59 +160,59 @@ mod tests {
         }
     }
 
+    // Current: WIP
     #[test]
     fn add_redundant_node() {
-        let dummy_nodes = mk_nodes();
-        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
-        let result = table.add_node(dummy_nodes[1]);
-        println!("Updated table: {:?}", table);
-        println!("\n");
-
-        let result = table.add_node(dummy_nodes[1]);
+        let (local_node, dummy_nodes) = mk_nodes(2);
+        let mut table = KbucketTable::new(local_node.node_id);
+        let result = table.add_node(dummy_nodes[0]);
+        println!("Routing table: {:?}", table);
+        // TODO: Create assertion
     }
 
     #[test]
     fn search_table() {
-        let dummy_nodes = mk_nodes();
-        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
+        let (local_node, dummy_nodes) = mk_nodes(2);
+        let mut table = KbucketTable::new(local_node.node_id);
         table.add_node(dummy_nodes[1]);
 
-        let result = table.search_table(dummy_nodes[1].node_id);
+        let result = table.search_table(dummy_nodes[0].node_id);
+        // TODO: Create assertion
     }
 
-    // TODO: Create assertion for test.  Get rid of print.
-    //       Why does [1, 1... ] print twice?
+    // TODO: Figure out why dummy_nodes[1] is printed twice
     #[test]
     fn find_node_present() {
-        let dummy_nodes = mk_nodes();
-        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
+        let (local_node, dummy_nodes) = mk_nodes(5);
+        let mut table = KbucketTable::new(local_node.node_id);
 
         for i in 1..dummy_nodes.len() {
             table.add_node(dummy_nodes[i]);
         }
 
+        // Returns node as expected
         let result = table.find_node(dummy_nodes[1].node_id);
-        // Result returns node as expected
         println!("result: {:?}", result);
+        // TODO: Create assertion
     }
 
     // TODO:  Make it more obvious that the correct node(s) are being returned
     #[test]
     fn find_node_absent() {
-        let dummy_nodes = mk_nodes();
-        let mut table = KbucketTable::new(dummy_nodes[0].node_id);
+        let (local_node, dummy_nodes) = mk_nodes(5);
+        let mut table = KbucketTable::new(local_node.node_id);
 
         for i in 1..dummy_nodes.len() {
-            if i == 3 {
+            if i == 2 {
                 break;
             } else {
                 table.add_node(dummy_nodes[i]);
             }
         }
-
-        let result = table.find_node(dummy_nodes[3].node_id);
-        // Result returns dummy_nodes[2] (they'd share the same bucket) as expected.
+        // Returns dummy_nodes[2] (they'd share the same bucket) as expected.
+        let result = table.find_node(dummy_nodes[2].node_id);
         println!("result: {:?}", result);
+        // TODO: Create assertion
     }
 
     // TODO?:  XOR Test
