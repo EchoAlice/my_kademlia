@@ -7,6 +7,5 @@ lint: fmt
 build:
     cargo build --all-targets
 run-ci: lint build test
-
-
-# Run "cargo test add_node -- --nocapture" to see that node was added to routing table.
+run-test-with-logs TEST:
+    cargo test {{TEST}} -- --nocapture
