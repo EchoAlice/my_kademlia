@@ -86,6 +86,7 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
+    // TODO:  Make add_node() take a reference to a node, not a node directly
     fn add_node(&mut self, node: Node) -> bool {
         let result = self.search_table(node.node_id);
         match result {
@@ -142,9 +143,9 @@ mod tests {
             .map(|i| mk_node(&listen_addr, port_start, i))
             .collect();
 
-        if let Some((local_node, other_nodes)) = our_nodes.split_first() {
-            let other_nodes = other_nodes.to_vec();
-            (local_node.clone(), other_nodes.clone())
+        if let Some((local_node, remote_nodes)) = our_nodes.split_first() {
+            let remote_nodes = remote_nodes.to_vec();
+            (local_node.clone(), remote_nodes)
         } else {
             panic!("Not enough nodes were created");
         }
@@ -160,24 +161,24 @@ mod tests {
 
     #[test]
     fn add_redundant_node() {
-        let (local_node, dummy_nodes) = mk_nodes(2);
+        let (local_node, remote_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
 
-        let result = table.add_node(dummy_nodes[0]);
+        let result = table.add_node(remote_nodes[0]);
         assert!(result);
-        let result2 = table.add_node(dummy_nodes[0]);
+        let result2 = table.add_node(remote_nodes[0]);
         assert!(!result2);
     }
 
     #[test]
     fn find_node_present() {
-        let (local_node, dummy_nodes) = mk_nodes(5);
+        let (local_node, remote_nodes) = mk_nodes(5);
         let mut table = KbucketTable::new(local_node.node_id);
-        for i in 1..dummy_nodes.len() {
-            table.add_node(dummy_nodes[i]);
+        let node_to_find = remote_nodes[1];
+        for node in remote_nodes {
+            table.add_node(node);
         }
 
-        let node_to_find = dummy_nodes[1];
         let result = table.find_node(node_to_find.node_id);
         match result {
             FindNodeResult::Found(Some(node)) => {
@@ -190,21 +191,25 @@ mod tests {
     // TODO:  Make it more obvious that the correct node(s) are being returned
     #[test]
     fn find_node_absent() {
-        let (local_node, dummy_nodes) = mk_nodes(5);
+        let (local_node, remote_nodes) = mk_nodes(5);
         let mut table = KbucketTable::new(local_node.node_id);
 
-        for i in 1..dummy_nodes.len() {
+        for i in 1..remote_nodes.len() {
             if i == 2 {
                 break;
             } else {
-                table.add_node(dummy_nodes[i]);
+                table.add_node(remote_nodes[i]);
             }
         }
-        // Returns dummy_nodes[2] (they'd share the same bucket) as expected.
-        let result = table.find_node(dummy_nodes[2].node_id);
-        println!("result: {:?}", result);
-        // TODO: Create assertion
+        // Returns remote_nodes[2] (they'd share the same bucket) as expected.
+        let result = table.find_node(remote_nodes[2].node_id);
+        match result {
+            FindNodeResult::NotFound(nodes) => {
+                // TODO: Create assertion
+                // How do I know the correctly returned bucket?  Should I hard code nodes? Change byte arrays for nodes?
+            }
+            _ => panic!("Set of closest nodes within a bucket should be returned"),
+        }
     }
-
     // TODO?:  XOR Test
 }
