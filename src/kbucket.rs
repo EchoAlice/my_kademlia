@@ -87,12 +87,13 @@ impl KbucketTable {
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
     // TODO:  Make add_node() take a reference to a node, not a node directly
-    fn add_node(&mut self, node: Node) -> bool {
+    fn add_node(&mut self, node: &Node) -> bool {
         let result = self.search_table(node.node_id);
         match result {
             Search::Success(bucket_index, column_index) => false,
             Search::Failure(bucket_index, column_index) => {
-                self.buckets[bucket_index][column_index] = Some(node);
+                // Should I be dereferencing the node?  Or change buckets to take references to nodes?
+                self.buckets[bucket_index][column_index] = Some(*node);
                 true
             }
         }
@@ -164,9 +165,9 @@ mod tests {
         let (local_node, remote_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
 
-        let result = table.add_node(remote_nodes[0]);
+        let result = table.add_node(&remote_nodes[0]);
         assert!(result);
-        let result2 = table.add_node(remote_nodes[0]);
+        let result2 = table.add_node(&remote_nodes[0]);
         assert!(!result2);
     }
 
@@ -176,7 +177,7 @@ mod tests {
         let mut table = KbucketTable::new(local_node.node_id);
         let node_to_find = remote_nodes[1];
         for node in remote_nodes {
-            table.add_node(node);
+            table.add_node(&node);
         }
 
         let result = table.find_node(node_to_find.node_id);
@@ -198,7 +199,7 @@ mod tests {
             if i == 2 {
                 break;
             } else {
-                table.add_node(remote_nodes[i]);
+                table.add_node(&remote_nodes[i]);
             }
         }
         // Returns remote_nodes[2] (they'd share the same bucket) as expected.
