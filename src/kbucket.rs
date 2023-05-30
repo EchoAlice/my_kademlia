@@ -121,21 +121,20 @@ impl KbucketTable {
         return Search::Failure(bucket_index, last_empty_index);
     }
 
-    fn xor_bucket_index(&self, identifier: Identifier) -> usize {
+    pub fn xor_bucket_index(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
 
-        MAX_BUCKETS - ((xor_distance.leading_zeros() - 1) as usize)
+        MAX_BUCKETS - (xor_distance.leading_zeros() as usize)
     }
 }
 
-// WIP:  Make better assertions
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn mk_nodes(n: usize) -> (Node, Vec<Node>) {
+    fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
         let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
 
@@ -152,11 +151,13 @@ mod tests {
         }
     }
 
-    fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: usize) -> Node {
+    fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: u8) -> Node {
+        let mut node_id = [0 as u8; 32];
+        node_id[31] += index as u8; // Increment the last byte by 1
         Node {
             ip_address: listen_addr.clone(),
             udp_port: port_start + index as u16,
-            node_id: [index as u8; 32],
+            node_id,
         }
     }
 
@@ -189,28 +190,37 @@ mod tests {
         }
     }
 
-    // TODO:  Make it more obvious that the correct node(s) are being returned
     #[test]
     fn find_node_absent() {
-        let (local_node, remote_nodes) = mk_nodes(5);
+        let (local_node, remote_nodes) = mk_nodes(10);
+        let absent_index = 4;
+        let node_to_find = remote_nodes[absent_index];
         let mut table = KbucketTable::new(local_node.node_id);
 
-        for i in 1..remote_nodes.len() {
-            if i == 2 {
-                break;
+        for i in 0..remote_nodes.len() {
+            if i == absent_index {
+                continue;
             } else {
                 table.add_node(&remote_nodes[i]);
             }
         }
-        // Returns remote_nodes[2] (they'd share the same bucket) as expected.
-        let result = table.find_node(remote_nodes[2].node_id);
+
+        let result = table.find_node(node_to_find.node_id);
         match result {
-            FindNodeResult::NotFound(nodes) => {
-                // TODO: Create assertion
-                // How do I know the correctly returned bucket?  Should I hard code nodes? Change byte arrays for nodes?
+            FindNodeResult::NotFound(nodes_returned) => {
+                let node_to_find_index = table.xor_bucket_index(node_to_find.node_id);
+
+                for node in nodes_returned {
+                    if let Some(node) = node {
+                        let node_in_bucket_index = table.xor_bucket_index(node.node_id);
+                        assert_ne!(node_to_find, node);
+                        assert_eq!(node_to_find_index, node_in_bucket_index);
+                    } else {
+                        panic!("find_node() returned an empty index")
+                    }
+                }
             }
-            _ => panic!("Set of closest nodes within a bucket should be returned"),
+            _ => panic!("FindNodeResult shouldn't == Found"),
         }
     }
-    // TODO?:  XOR Test
 }
