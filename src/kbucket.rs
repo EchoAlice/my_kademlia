@@ -118,7 +118,7 @@ impl KbucketTable {
                 }
             }
         }
-        return Search::Failure(bucket_index, last_empty_index);
+        Search::Failure(bucket_index, last_empty_index)
     }
 
     pub fn xor_bucket_index(&self, identifier: Identifier) -> usize {
@@ -139,23 +139,23 @@ mod tests {
         let port_start = 9000_u16;
 
         let our_nodes: Vec<Node> = (0..n)
-            .into_iter()
             .map(|i| mk_node(&listen_addr, port_start, i))
             .collect();
 
         if let Some((local_node, remote_nodes)) = our_nodes.split_first() {
             let remote_nodes = remote_nodes.to_vec();
-            (local_node.clone(), remote_nodes)
+            (*local_node, remote_nodes)
         } else {
             panic!("Not enough nodes were created");
         }
     }
 
     fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: u8) -> Node {
-        let mut node_id = [0 as u8; 32];
-        node_id[31] += index as u8; // Increment the last byte by 1
+        let mut node_id = [0_u8; 32];
+        node_id[31] += index;
+
         Node {
-            ip_address: listen_addr.clone(),
+            ip_address: *listen_addr,
             udp_port: port_start + index as u16,
             node_id,
         }
@@ -181,8 +181,7 @@ mod tests {
             table.add_node(&node);
         }
 
-        let result = table.find_node(node_to_find.node_id);
-        match result {
+        match table.find_node(node_to_find.node_id) {
             FindNodeResult::Found(Some(node)) => {
                 assert_eq!(node.node_id, node_to_find.node_id)
             }
@@ -197,16 +196,15 @@ mod tests {
         let node_to_find = remote_nodes[absent_index];
         let mut table = KbucketTable::new(local_node.node_id);
 
-        for i in 0..remote_nodes.len() {
+        for (i, node) in remote_nodes.iter().enumerate() {
             if i == absent_index {
                 continue;
             } else {
-                table.add_node(&remote_nodes[i]);
+                table.add_node(node);
             }
         }
 
-        let result = table.find_node(node_to_find.node_id);
-        match result {
+        match table.find_node(node_to_find.node_id) {
             FindNodeResult::NotFound(nodes_returned) => {
                 let node_to_find_index = table.xor_bucket_index(node_to_find.node_id);
 
