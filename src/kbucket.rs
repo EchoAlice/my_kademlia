@@ -53,9 +53,7 @@ impl KbucketTable {
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
     pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
-        let result = self.search_table(id);
-
-        match result {
+        match self.search_table(id) {
             Search::Success(bucket_index, column_index) => {
                 let bucket = self.buckets[bucket_index];
                 FindNodeResult::Found(bucket[column_index])
@@ -86,13 +84,10 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    // TODO:  Make add_node() take a reference to a node, not a node directly
     fn add_node(&mut self, node: &Node) -> bool {
-        let result = self.search_table(node.node_id);
-        match result {
+        match self.search_table(node.node_id) {
             Search::Success(bucket_index, column_index) => false,
             Search::Failure(bucket_index, column_index) => {
-                // Should I be dereferencing the node?  Or change buckets to take references to nodes?
                 self.buckets[bucket_index][column_index] = Some(*node);
                 true
             }
@@ -146,7 +141,7 @@ mod tests {
             let remote_nodes = remote_nodes.to_vec();
             (*local_node, remote_nodes)
         } else {
-            panic!("Not enough nodes were created");
+            unreachable!("Nodes weren't created");
         }
     }
 
@@ -185,7 +180,7 @@ mod tests {
             FindNodeResult::Found(Some(node)) => {
                 assert_eq!(node.node_id, node_to_find.node_id)
             }
-            _ => panic!("Node should have been found"),
+            _ => unreachable!("Node should have been found"),
         }
     }
 
@@ -218,7 +213,7 @@ mod tests {
                     }
                 }
             }
-            _ => panic!("FindNodeResult shouldn't == Found"),
+            _ => unreachable!("FindNodeResult shouldn't == Found"),
         }
     }
 }
