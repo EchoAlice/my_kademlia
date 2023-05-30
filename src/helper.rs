@@ -1,6 +1,5 @@
 #![allow(clippy::assign_op_pattern)]
 
-use crate::kbucket::KbucketTable;
 use std::net::Ipv4Addr;
 use uint::*;
 
