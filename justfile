@@ -7,3 +7,5 @@ lint: fmt
 build:
     cargo build --all-targets
 run-ci: lint build test
+run-test-with-logs TEST:
+    cargo test {{TEST}} -- --nocapture

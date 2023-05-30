@@ -2,6 +2,7 @@
 
 use crate::helper::{Identifier, Node, U256};
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use uint::*;
 
 const BUCKET_SIZE: usize = 20;
@@ -9,15 +10,16 @@ const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<Node>; BUCKET_SIZE];
 
+#[derive(Debug)]
 pub enum FindNodeResult {
-    // I don't think this should be "Option<T>".  Fix later
     Found(Option<Node>),
     NotFound(Vec<Option<Node>>),
 }
-pub struct SearchResult {
-    pub found: bool,
-    pub bucket_index: usize,
-    pub column_index: usize,
+
+#[derive(Debug)]
+enum Search {
+    Success(usize, usize),
+    Failure(usize, usize),
 }
 
 // Bucket 0: Closest peers from node in network.
@@ -37,6 +39,7 @@ impl KbucketTable {
             store: Default::default(),
         }
     }
+
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
     // TODO:
@@ -50,62 +53,57 @@ impl KbucketTable {
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
     pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
-        let result = self.search_table(id);
-        let mut bucket = self.buckets[result.bucket_index];
-
-        if result.found {
-            // Returns Node
-            FindNodeResult::Found(bucket[result.column_index])
-        } else {
-            let mut known_nodes = Vec::new();
-
-            for node in bucket.iter() {
-                if node.is_some() {
-                    // Should I be dereferencing the node to send to others?  Or copy the node to share?
-                    known_nodes.push(*node)
-                }
+        match self.search_table(id) {
+            Search::Success(bucket_index, column_index) => {
+                let bucket = self.buckets[bucket_index];
+                FindNodeResult::Found(bucket[column_index])
             }
-            // Returns nodes within local node's closest bucket to queried node
-            FindNodeResult::NotFound(known_nodes)
+            Search::Failure(bucket_index, column_index) => {
+                let bucket = self.buckets[bucket_index];
+                let mut known_nodes = Vec::new();
+
+                for node in bucket.iter() {
+                    if node.is_some() {
+                        // Should I be dereferencing the node to send to others?  Or copy the node to share?
+                        known_nodes.push(*node)
+                    }
+                }
+                FindNodeResult::NotFound(known_nodes)
+            }
         }
     }
     // TODO:
     pub fn find_value() {}
 
     // TODO:
-    /// Instructs a node to store a key, value pair for later retrieval. "Most operations are implemented
-    /// in terms of the lookup proceedure. To store a <key,value> pair, a participant locates the k closes
-    /// nodes to the key and sends them store RPCs".
+    /// Instructs a node to store a key, value pair for later retrieval.
+    ///
+    /// "Most operations are implemented in terms of the lookup proceedure. To store a
+    /// <key,value> pair, a participant locates the k closes nodes to the key and sends them store RPCs".
     pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    pub fn add_node(&mut self, node: Node) {
-        let result = self.search_table(node.node_id);
-        let mut bucket = self.buckets[result.bucket_index];
-
-        if !result.found {
-            bucket[result.column_index] = Some(node)
-        } else {
-            println!("Node is already in our table")
+    fn add_node(&mut self, node: &Node) -> bool {
+        match self.search_table(node.node_id) {
+            Search::Success(bucket_index, column_index) => false,
+            Search::Failure(bucket_index, column_index) => {
+                self.buckets[bucket_index][column_index] = Some(*node);
+                true
+            }
         }
     }
 
-    // Searches table for node specified.
-    fn search_table(&self, id: Identifier) -> SearchResult {
+    fn search_table(&self, id: Identifier) -> Search {
         let mut last_empty_index = 0;
-        let bucket_index = self.find_bucket_index(id);
+        let bucket_index = self.xor_bucket_index(id);
         let mut bucket = self.buckets[bucket_index];
 
         for (i, node) in bucket.iter().enumerate() {
             match node {
                 Some(bucket_node) => {
                     if bucket_node.node_id == id {
-                        SearchResult {
-                            found: true,
-                            bucket_index,
-                            column_index: i,
-                        }
+                        return Search::Success(bucket_index, i);
                     } else {
                         continue;
                     };
@@ -115,34 +113,107 @@ impl KbucketTable {
                 }
             }
         }
-        SearchResult {
-            found: false,
-            bucket_index,
-            column_index: last_empty_index,
-        }
+        Search::Failure(bucket_index, last_empty_index)
     }
 
-    fn find_bucket_index(&self, identifier: Identifier) -> usize {
+    pub fn xor_bucket_index(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
 
-        let bucket_index = MAX_BUCKETS - (xor_distance.leading_zeros() as usize);
-        println!(
-            "Xor distance leading zeros, {}",
-            xor_distance.leading_zeros()
-        );
-        println!("Bucket index for given key: {}", bucket_index);
-        bucket_index
+        MAX_BUCKETS - (xor_distance.leading_zeros() as usize)
     }
 }
 
-/// TODO:  Implement real deal tests!
-///
-/// Test find_node()      **Requires adding nodes to our table**
-/// Test search_table()
-/// Test add_node()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
+        let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
+        let port_start = 9000_u16;
+
+        let our_nodes: Vec<Node> = (0..n)
+            .map(|i| mk_node(&listen_addr, port_start, i))
+            .collect();
+
+        if let Some((local_node, remote_nodes)) = our_nodes.split_first() {
+            let remote_nodes = remote_nodes.to_vec();
+            (*local_node, remote_nodes)
+        } else {
+            unreachable!("Nodes weren't created");
+        }
+    }
+
+    fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: u8) -> Node {
+        let mut node_id = [0_u8; 32];
+        node_id[31] += index;
+
+        Node {
+            ip_address: *listen_addr,
+            udp_port: port_start + index as u16,
+            node_id,
+        }
+    }
+
+    #[test]
+    fn add_redundant_node() {
+        let (local_node, remote_nodes) = mk_nodes(2);
+        let mut table = KbucketTable::new(local_node.node_id);
+
+        let result = table.add_node(&remote_nodes[0]);
+        assert!(result);
+        let result2 = table.add_node(&remote_nodes[0]);
+        assert!(!result2);
+    }
+
+    #[test]
+    fn find_node_present() {
+        let (local_node, remote_nodes) = mk_nodes(5);
+        let mut table = KbucketTable::new(local_node.node_id);
+        let node_to_find = remote_nodes[1];
+        for node in remote_nodes {
+            table.add_node(&node);
+        }
+
+        match table.find_node(node_to_find.node_id) {
+            FindNodeResult::Found(Some(node)) => {
+                assert_eq!(node.node_id, node_to_find.node_id)
+            }
+            _ => unreachable!("Node should have been found"),
+        }
+    }
+
+    #[test]
+    fn find_node_absent() {
+        let (local_node, remote_nodes) = mk_nodes(10);
+        let absent_index = 4;
+        let node_to_find = remote_nodes[absent_index];
+        let mut table = KbucketTable::new(local_node.node_id);
+
+        for (i, node) in remote_nodes.iter().enumerate() {
+            if i == absent_index {
+                continue;
+            } else {
+                table.add_node(node);
+            }
+        }
+
+        match table.find_node(node_to_find.node_id) {
+            FindNodeResult::NotFound(nodes_returned) => {
+                let node_to_find_index = table.xor_bucket_index(node_to_find.node_id);
+
+                for node in nodes_returned {
+                    if let Some(node) = node {
+                        let node_in_bucket_index = table.xor_bucket_index(node.node_id);
+                        assert_ne!(node_to_find, node);
+                        assert_eq!(node_to_find_index, node_in_bucket_index);
+                    } else {
+                        panic!("find_node() returned an empty index")
+                    }
+                }
+            }
+            _ => unreachable!("FindNodeResult shouldn't == Found"),
+        }
+    }
 }
