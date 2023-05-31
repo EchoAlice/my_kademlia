@@ -42,9 +42,20 @@ impl KbucketTable {
 
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
+    //
+    /// Follow specs from Discv5.2:  https://github.com/ethereum/devp2p/blob/discv5-v5.2/discv5/discv5-wire.md.
+    ///
+
     // TODO:
-    // Probes a node to see if it's online
-    pub fn ping() {}
+    pub fn ping(node: &Node) {
+        // Step 1:  Get IP address of node to ping
+
+        // Step 2:  Set up Tokio One Shot channel to send request
+
+        // Step 3:  Wait "x" seconds for response
+
+        // Step 4:  Return info based on pong or no pong
+    }
 
     /// "The most important procedure a Kademlia participant must perform is to locate
     /// the k closest nodes to some given node ID"
