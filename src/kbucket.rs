@@ -2,7 +2,9 @@
 
 use crate::helper::{Identifier, Node, U256};
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 use uint::*;
 
 const BUCKET_SIZE: usize = 20;
@@ -45,17 +47,7 @@ impl KbucketTable {
     //
     /// Follow specs from Discv5.2:  https://github.com/ethereum/devp2p/blob/discv5-v5.2/discv5/discv5-wire.md.
     ///
-
-    // TODO:
-    pub fn ping(node: &Node) {
-        // Step 1:  Get IP address of node to ping
-
-        // Step 2:  Set up Tokio One Shot channel to send request
-
-        // Step 3:  Wait "x" seconds for response
-
-        // Step 4:  Return info based on pong or no pong
-    }
+    pub fn ping(&mut self, node: &Node, message_packet: String) {}
 
     /// "The most important procedure a Kademlia participant must perform is to locate
     /// the k closest nodes to some given node ID"
@@ -140,6 +132,7 @@ impl KbucketTable {
 mod tests {
     use super::*;
 
+    // Create Socket addresses for our nodes
     fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
         let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
@@ -161,9 +154,10 @@ mod tests {
         node_id[31] += index;
 
         Node {
+            node_id,
             ip_address: *listen_addr,
             udp_port: port_start + index as u16,
-            node_id,
+            socket: SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port_start + index as u16),
         }
     }
 
@@ -226,5 +220,15 @@ mod tests {
             }
             _ => unreachable!("FindNodeResult shouldn't == Found"),
         }
+    }
+
+    #[test]
+    fn run_ping() {
+        let (local_node, remote_nodes) = mk_nodes(2);
+        let mut table = KbucketTable::new(local_node.node_id);
+        let message_packet = String::from("Alice");
+
+        println!("Node's udp socket: {}", local_node.socket);
+        table.ping(&local_node, message_packet);
     }
 }
