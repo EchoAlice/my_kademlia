@@ -129,6 +129,8 @@ impl KbucketTable {
 
 #[cfg(test)]
 mod tests {
+    use crate::helper::PING_MESSAGE_SIZE;
+
     use super::*;
 
     fn mk_nodes(n: u8) -> (Node, Vec<TableRecord>) {
@@ -232,9 +234,10 @@ mod tests {
 
         match (local_socket, remote_socket) {
             (Ok(local_socket), Ok(remote_socket)) => {
-                local_node
+                let result = local_node
                     .ping(&local_socket, &remote_nodes[0].socket_addr)
                     .await;
+                assert_eq!(result, PING_MESSAGE_SIZE)
             }
             _ => unreachable!("Both nodes should have UDP sockets"),
         }

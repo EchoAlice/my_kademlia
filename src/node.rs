@@ -39,25 +39,10 @@ impl Node {
         socket
     }
 
-    pub async fn ping(
-        &self,
-        local_socket: &UdpSocket,
-        node_to_ping: &SocketAddrV4,
-    ) -> io::Result<()> {
+    pub async fn ping(&self, local_socket: &UdpSocket, node_to_ping: &SocketAddrV4) -> usize {
         let message_packet = b"Ping";
-
         local_socket.connect(node_to_ping).await;
-        let result = local_socket.send(message_packet).await.unwrap();
-        println!("Ping send result: {}", result);
-
-        let mut buf = [0; 1024];
-        loop {
-            let len = local_socket.recv(&mut buf).await?;
-            println!("{:?} bytes received from {:?}", len, node_to_ping);
-
-            let len = local_socket.send_to(&buf[..len], node_to_ping).await?;
-            println!("{:?} bytes sent", len);
-        }
+        local_socket.send(message_packet).await.unwrap()
     }
 
     // pub fn find_node() {}
