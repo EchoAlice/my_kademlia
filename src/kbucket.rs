@@ -13,22 +13,7 @@ use uint::*;
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
-// TODO:
 type Bucket = [Option<TableRecord>; BUCKET_SIZE];
-/*
-// MOVED
-#[derive(Debug)]
-pub enum FindNodeResult {
-    Found(Option<TableRecord>),
-    NotFound(Vec<Option<TableRecord>>),
-}
-// MOVED
-#[derive(Debug)]
-enum Search {
-    Success(usize, usize),
-    Failure(usize, usize),
-}
-*/
 
 // Bucket 0: Closest peers from node in network.
 // Bucket 255: Farthest peers from node in network
