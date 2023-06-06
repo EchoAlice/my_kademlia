@@ -131,19 +131,21 @@ impl KbucketTable {
 mod tests {
     use super::*;
 
-    fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
+    fn mk_nodes(n: u8) -> (Node, Vec<TableRecord>) {
         let ip_address = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
 
-        let local_node = mk_node(&ip_address, port_start, 0);
-        let remote_nodes: Vec<Node> = (1..n)
-            .map(|i| mk_node(&ip_address, port_start, i))
+        let local_node_record = mk_node_record(&ip_address, port_start, 0);
+        let local_node = Node::new(local_node_record.node_id, local_node_record);
+
+        let remote_node_records: Vec<TableRecord> = (1..n)
+            .map(|i| mk_node_record(&ip_address, port_start, i))
             .collect();
 
-        (local_node, remote_nodes)
+        (local_node, remote_node_records)
     }
 
-    fn mk_node(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> Node {
+    fn mk_node_record(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> TableRecord {
         let mut node_id = [0_u8; 32];
         node_id[31] += index;
         let udp_port = port_start + index as u16;
@@ -153,10 +155,8 @@ mod tests {
             ip_address: *ip_address,
             udp_port,
         };
-        let node = Node::new(node_id, table_record);
 
-        println!("NEW NODE method result: {:?}", node);
-        return node;
+        return table_record;
     }
 
     #[test]
@@ -164,19 +164,21 @@ mod tests {
         let (local_node, remote_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
 
-        let result = table.add_node(&remote_nodes[0].table_record);
+        let result = table.add_node(&remote_nodes[0]);
         assert!(result);
-        let result2 = table.add_node(&remote_nodes[0].table_record);
+        let result2 = table.add_node(&remote_nodes[0]);
         assert!(!result2);
     }
 
     #[test]
     fn find_node_present() {
         let (local_node, remote_nodes) = mk_nodes(5);
+        println!("created nodes");
         let mut table = KbucketTable::new(local_node.node_id);
-        let node_to_find = remote_nodes[1].table_record;
+        println!("created table");
+        let node_to_find = remote_nodes[1];
         for node in remote_nodes {
-            table.add_node(&node.table_record);
+            table.add_node(&node);
         }
 
         match table.find_node(node_to_find.node_id) {
@@ -191,14 +193,14 @@ mod tests {
     fn find_node_absent() {
         let (local_node, remote_nodes) = mk_nodes(10);
         let absent_index = 4;
-        let node_to_find = remote_nodes[absent_index].table_record;
+        let node_to_find = remote_nodes[absent_index];
         let mut table = KbucketTable::new(local_node.node_id);
 
         for (i, node) in remote_nodes.iter().enumerate() {
             if i == absent_index {
                 continue;
             } else {
-                table.add_node(&node.table_record);
+                table.add_node(&node);
             }
         }
 
@@ -218,11 +220,6 @@ mod tests {
             }
             _ => unreachable!("FindNodeResult shouldn't == Found"),
         }
-    }
-
-    #[test]
-    fn create_node() {
-        mk_nodes(3);
     }
 
     // TODO: Create Socket addresses for our nodes.  Maybe just create the socket addresses within our test for now...
