@@ -1,8 +1,11 @@
 #![allow(unused)]
 
-use crate::helper::{Identifier, Node, U256};
-use std::collections::HashMap;
+use crate::helper::{Identifier, U256};
+use crate::node::{Node, TableRecord};
+use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use uint::*;
@@ -10,12 +13,13 @@ use uint::*;
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
-type Bucket = [Option<Node>; BUCKET_SIZE];
+// TODO:
+type Bucket = [Option<TableRecord>; BUCKET_SIZE];
 
 #[derive(Debug)]
 pub enum FindNodeResult {
-    Found(Option<Node>),
-    NotFound(Vec<Option<Node>>),
+    Found(Option<TableRecord>),
+    NotFound(Vec<Option<TableRecord>>),
 }
 
 #[derive(Debug)]
@@ -26,11 +30,10 @@ enum Search {
 
 // Bucket 0: Closest peers from node in network.
 // Bucket 255: Farthest peers from node in network
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct KbucketTable {
     pub local_node_id: Identifier,
     pub buckets: [Bucket; MAX_BUCKETS],
-    store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as portal network.
 }
 
 impl KbucketTable {
@@ -38,16 +41,12 @@ impl KbucketTable {
         Self {
             local_node_id,
             buckets: [Default::default(); MAX_BUCKETS],
-            store: Default::default(),
         }
     }
 
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
-    //
-    /// Follow specs from Discv5.2:  https://github.com/ethereum/devp2p/blob/discv5-v5.2/discv5/discv5-wire.md.
-    ///
-    pub fn ping(&mut self, node: &Node, message_packet: String) {}
+    /// TODO:  Move protocol RPCs from KbucketTable to Node
 
     /// "The most important procedure a Kademlia participant must perform is to locate
     /// the k closest nodes to some given node ID"
@@ -87,11 +86,11 @@ impl KbucketTable {
 
     // Non-RPCs:
     // ---------------------------------------------------------------------------------------------------
-    fn add_node(&mut self, node: &Node) -> bool {
-        match self.search_table(node.node_id) {
+    fn add_node(&mut self, record: &TableRecord) -> bool {
+        match self.search_table(record.node_id) {
             Search::Success(bucket_index, column_index) => false,
             Search::Failure(bucket_index, column_index) => {
-                self.buckets[bucket_index][column_index] = Some(*node);
+                self.buckets[bucket_index][column_index] = Some(*record);
                 true
             }
         }
@@ -132,33 +131,32 @@ impl KbucketTable {
 mod tests {
     use super::*;
 
-    // Create Socket addresses for our nodes
     fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
-        let listen_addr = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
+        let ip_address = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
 
-        let our_nodes: Vec<Node> = (0..n)
-            .map(|i| mk_node(&listen_addr, port_start, i))
+        let local_node = mk_node(&ip_address, port_start, 0);
+        let remote_nodes: Vec<Node> = (1..n)
+            .map(|i| mk_node(&ip_address, port_start, i))
             .collect();
 
-        if let Some((local_node, remote_nodes)) = our_nodes.split_first() {
-            let remote_nodes = remote_nodes.to_vec();
-            (*local_node, remote_nodes)
-        } else {
-            unreachable!("Nodes weren't created");
-        }
+        (local_node, remote_nodes)
     }
 
-    fn mk_node(listen_addr: &Ipv4Addr, port_start: u16, index: u8) -> Node {
+    fn mk_node(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> Node {
         let mut node_id = [0_u8; 32];
         node_id[31] += index;
+        let udp_port = port_start + index as u16;
 
-        Node {
+        let table_record = TableRecord {
             node_id,
-            ip_address: *listen_addr,
-            udp_port: port_start + index as u16,
-            socket: SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port_start + index as u16),
-        }
+            ip_address: *ip_address,
+            udp_port,
+        };
+        let node = Node::new(node_id, table_record);
+
+        println!("NEW NODE method result: {:?}", node);
+        return node;
     }
 
     #[test]
@@ -166,9 +164,9 @@ mod tests {
         let (local_node, remote_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
 
-        let result = table.add_node(&remote_nodes[0]);
+        let result = table.add_node(&remote_nodes[0].table_record);
         assert!(result);
-        let result2 = table.add_node(&remote_nodes[0]);
+        let result2 = table.add_node(&remote_nodes[0].table_record);
         assert!(!result2);
     }
 
@@ -176,9 +174,9 @@ mod tests {
     fn find_node_present() {
         let (local_node, remote_nodes) = mk_nodes(5);
         let mut table = KbucketTable::new(local_node.node_id);
-        let node_to_find = remote_nodes[1];
+        let node_to_find = remote_nodes[1].table_record;
         for node in remote_nodes {
-            table.add_node(&node);
+            table.add_node(&node.table_record);
         }
 
         match table.find_node(node_to_find.node_id) {
@@ -193,14 +191,14 @@ mod tests {
     fn find_node_absent() {
         let (local_node, remote_nodes) = mk_nodes(10);
         let absent_index = 4;
-        let node_to_find = remote_nodes[absent_index];
+        let node_to_find = remote_nodes[absent_index].table_record;
         let mut table = KbucketTable::new(local_node.node_id);
 
         for (i, node) in remote_nodes.iter().enumerate() {
             if i == absent_index {
                 continue;
             } else {
-                table.add_node(node);
+                table.add_node(&node.table_record);
             }
         }
 
@@ -223,12 +221,24 @@ mod tests {
     }
 
     #[test]
-    fn run_ping() {
-        let (local_node, remote_nodes) = mk_nodes(2);
-        let mut table = KbucketTable::new(local_node.node_id);
-        let message_packet = String::from("Alice");
-
-        println!("Node's udp socket: {}", local_node.socket);
-        table.ping(&local_node, message_packet);
+    fn create_node() {
+        mk_nodes(3);
     }
+
+    // TODO: Create Socket addresses for our nodes.  Maybe just create the socket addresses within our test for now...
+    /*
+    #[tokio::test]
+    async fn run_ping() {
+        let (local_node, remote_nodes) = mk_nodes(10);
+        let mut table = KbucketTable::new(local_node.node_id);
+
+        // Worry about placing socket here, not within nodes
+        let local_socket = local_node.socket();
+
+        let local_socket = UdpSocket::bind(local_node.socket_addr).await;
+        let ping_socket = UdpSocket::bind(node_to_ping.socket_addr).await;
+
+        table.ping();
+    }
+    */
 }

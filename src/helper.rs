@@ -3,7 +3,6 @@
 // to address further
 #![allow(clippy::assign_op_pattern)]
 
-use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::sync::mpsc;
 use uint::*;
 
@@ -14,14 +13,10 @@ construct_uint! {
     pub struct U256(4);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Node {
-    pub node_id: Identifier,
-    pub ip_address: Ipv4Addr,
-    pub udp_port: u16,
-    pub socket: SocketAddrV4,
+/*
+pub struct Packet {}
+pub struct Handler {
+    // Channel to respond to send requests
+    handler_recv: mpsc::Receiver<Packet>,
 }
-
-// Spin up a server that has a SocketAddress.  We need an address to send any UDP
-// message to...  See https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
-// https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
+*/

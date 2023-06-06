@@ -2,11 +2,12 @@
 
 use std::net::Ipv4Addr;
 
-use crate::{helper::Node, kbucket::KbucketTable};
+use crate::kbucket::KbucketTable;
 use sha2::{Digest, Sha256};
 
 pub mod helper;
 pub mod kbucket;
+pub mod node;
 
 fn main() {
     /// Bootstrapping protocol -
