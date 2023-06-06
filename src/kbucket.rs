@@ -154,6 +154,7 @@ mod tests {
             node_id,
             ip_address: *ip_address,
             udp_port,
+            socket_addr: SocketAddrV4::new(*ip_address, udp_port),
         };
 
         return table_record;
@@ -173,9 +174,8 @@ mod tests {
     #[test]
     fn find_node_present() {
         let (local_node, remote_nodes) = mk_nodes(5);
-        println!("created nodes");
         let mut table = KbucketTable::new(local_node.node_id);
-        println!("created table");
+
         let node_to_find = remote_nodes[1];
         for node in remote_nodes {
             table.add_node(&node);
@@ -222,20 +222,21 @@ mod tests {
         }
     }
 
-    // TODO: Create Socket addresses for our nodes.  Maybe just create the socket addresses within our test for now...
-    /*
     #[tokio::test]
     async fn run_ping() {
-        let (local_node, remote_nodes) = mk_nodes(10);
+        let (local_node, remote_nodes) = mk_nodes(2);
         let mut table = KbucketTable::new(local_node.node_id);
 
-        // Worry about placing socket here, not within nodes
-        let local_socket = local_node.socket();
+        let local_socket = local_node.socket().await;
+        let remote_socket = UdpSocket::bind(remote_nodes[0].socket_addr).await;
 
-        let local_socket = UdpSocket::bind(local_node.socket_addr).await;
-        let ping_socket = UdpSocket::bind(node_to_ping.socket_addr).await;
-
-        table.ping();
+        match (local_socket, remote_socket) {
+            (Ok(local_socket), Ok(remote_socket)) => {
+                local_node
+                    .ping(&local_socket, &remote_nodes[0].socket_addr)
+                    .await;
+            }
+            _ => unreachable!("Both nodes should have UDP sockets"),
+        }
     }
-    */
 }
