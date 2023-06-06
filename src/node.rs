@@ -1,6 +1,5 @@
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
-use crate::node;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::io;

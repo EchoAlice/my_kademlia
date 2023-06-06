@@ -3,9 +3,10 @@
 // to address further
 #![allow(clippy::assign_op_pattern)]
 
-use tokio::sync::mpsc;
+// use tokio::sync::mpsc;
 use uint::*;
 
+pub const PING_MESSAGE_SIZE: usize = 4;
 pub type Identifier = [u8; 32];
 
 construct_uint! {
