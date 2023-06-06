@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::helper::{Identifier, U256};
-use crate::node::{Node, TableRecord};
+use crate::node::{FindNodeResult, Node, Search, TableRecord};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
@@ -15,18 +15,20 @@ const MAX_BUCKETS: usize = 256;
 
 // TODO:
 type Bucket = [Option<TableRecord>; BUCKET_SIZE];
-
+/*
+// MOVED
 #[derive(Debug)]
 pub enum FindNodeResult {
     Found(Option<TableRecord>),
     NotFound(Vec<Option<TableRecord>>),
 }
-
+// MOVED
 #[derive(Debug)]
 enum Search {
     Success(usize, usize),
     Failure(usize, usize),
 }
+*/
 
 // Bucket 0: Closest peers from node in network.
 // Bucket 255: Farthest peers from node in network
@@ -44,48 +46,6 @@ impl KbucketTable {
         }
     }
 
-    // Protocol's RPCs:
-    // ---------------------------------------------------------------------------------------------------
-    /// TODO:  Move protocol RPCs from KbucketTable to Node
-
-    /// "The most important procedure a Kademlia participant must perform is to locate
-    /// the k closest nodes to some given node ID"
-    ///     - Kademlia Paper
-    ///
-    /// Recieves an id request and returns node information on nodes within
-    /// *its closest bucket* (instead of k-closest nodes) to that id.
-    pub fn find_node(&mut self, id: Identifier) -> FindNodeResult {
-        match self.search_table(id) {
-            Search::Success(bucket_index, column_index) => {
-                let bucket = self.buckets[bucket_index];
-                FindNodeResult::Found(bucket[column_index])
-            }
-            Search::Failure(bucket_index, column_index) => {
-                let bucket = self.buckets[bucket_index];
-                let mut known_nodes = Vec::new();
-
-                for node in bucket.iter() {
-                    if node.is_some() {
-                        // Should I be dereferencing the node to send to others?  Or copy the node to share?
-                        known_nodes.push(*node)
-                    }
-                }
-                FindNodeResult::NotFound(known_nodes)
-            }
-        }
-    }
-    // TODO:
-    pub fn find_value() {}
-
-    // TODO:
-    /// Instructs a node to store a key, value pair for later retrieval.
-    ///
-    /// "Most operations are implemented in terms of the lookup proceedure. To store a
-    /// <key,value> pair, a participant locates the k closes nodes to the key and sends them store RPCs".
-    pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
-
-    // Non-RPCs:
-    // ---------------------------------------------------------------------------------------------------
     fn add_node(&mut self, record: &TableRecord) -> bool {
         match self.search_table(record.node_id) {
             Search::Success(bucket_index, column_index) => false,
@@ -96,7 +56,7 @@ impl KbucketTable {
         }
     }
 
-    fn search_table(&self, id: Identifier) -> Search {
+    pub fn search_table(&self, id: Identifier) -> Search {
         let mut last_empty_index = 0;
         let bucket_index = self.xor_bucket_index(id);
         let mut bucket = self.buckets[bucket_index];
@@ -118,7 +78,7 @@ impl KbucketTable {
         Search::Failure(bucket_index, last_empty_index)
     }
 
-    pub fn xor_bucket_index(&self, identifier: Identifier) -> usize {
+    fn xor_bucket_index(&self, identifier: Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
@@ -129,7 +89,7 @@ impl KbucketTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::helper::PING_MESSAGE_SIZE;
+    use crate::{helper::PING_MESSAGE_SIZE, node};
 
     use super::*;
 
@@ -164,26 +124,24 @@ mod tests {
 
     #[test]
     fn add_redundant_node() {
-        let (local_node, remote_nodes) = mk_nodes(2);
-        let mut table = KbucketTable::new(local_node.node_id);
+        let (mut local_node, remote_nodes) = mk_nodes(2);
 
-        let result = table.add_node(&remote_nodes[0]);
+        let result = local_node.table.add_node(&remote_nodes[0]);
         assert!(result);
-        let result2 = table.add_node(&remote_nodes[0]);
+        let result2 = local_node.table.add_node(&remote_nodes[0]);
         assert!(!result2);
     }
 
     #[test]
     fn find_node_present() {
-        let (local_node, remote_nodes) = mk_nodes(5);
-        let mut table = KbucketTable::new(local_node.node_id);
+        let (mut local_node, remote_nodes) = mk_nodes(5);
 
         let node_to_find = remote_nodes[1];
         for node in remote_nodes {
-            table.add_node(&node);
+            local_node.table.add_node(&node);
         }
 
-        match table.find_node(node_to_find.node_id) {
+        match local_node.find_node(node_to_find.node_id) {
             FindNodeResult::Found(Some(node)) => {
                 assert_eq!(node.node_id, node_to_find.node_id)
             }
@@ -193,26 +151,25 @@ mod tests {
 
     #[test]
     fn find_node_absent() {
-        let (local_node, remote_nodes) = mk_nodes(10);
+        let (mut local_node, remote_nodes) = mk_nodes(10);
         let absent_index = 4;
         let node_to_find = remote_nodes[absent_index];
-        let mut table = KbucketTable::new(local_node.node_id);
 
         for (i, node) in remote_nodes.iter().enumerate() {
             if i == absent_index {
                 continue;
             } else {
-                table.add_node(&node);
+                local_node.table.add_node(&node);
             }
         }
 
-        match table.find_node(node_to_find.node_id) {
+        match local_node.find_node(node_to_find.node_id) {
             FindNodeResult::NotFound(nodes_returned) => {
-                let node_to_find_index = table.xor_bucket_index(node_to_find.node_id);
+                let node_to_find_index = local_node.table.xor_bucket_index(node_to_find.node_id);
 
                 for node in nodes_returned {
                     if let Some(node) = node {
-                        let node_in_bucket_index = table.xor_bucket_index(node.node_id);
+                        let node_in_bucket_index = local_node.table.xor_bucket_index(node.node_id);
                         assert_ne!(node_to_find, node);
                         assert_eq!(node_to_find_index, node_in_bucket_index);
                     } else {
@@ -227,7 +184,6 @@ mod tests {
     #[tokio::test]
     async fn run_ping() {
         let (local_node, remote_nodes) = mk_nodes(2);
-        let mut table = KbucketTable::new(local_node.node_id);
 
         let local_socket = local_node.socket().await;
         let remote_socket = UdpSocket::bind(remote_nodes[0].socket_addr).await;
