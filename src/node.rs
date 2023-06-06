@@ -54,7 +54,7 @@ impl Node {
     ///
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
-    pub fn find_node(&mut self, node_id: Identifier) -> FindNodeResult {
+    pub fn find_node(&mut self, node_id: &Identifier) -> FindNodeResult {
         match KbucketTable::search_table(&self.table, node_id) {
             Search::Success(bucket_index, column_index) => {
                 let bucket = self.table.buckets[bucket_index];
@@ -75,10 +75,16 @@ impl Node {
         }
     }
 
-    pub async fn ping(&self, local_socket: &UdpSocket, node_to_ping: &SocketAddrV4) -> usize {
+    pub async fn ping(&mut self, local_socket: &UdpSocket, node_to_ping: &Identifier) -> usize {
         let message_packet = b"Ping";
-        local_socket.connect(node_to_ping).await;
-        local_socket.send(message_packet).await.unwrap()
+
+        match self.find_node(node_to_ping) {
+            FindNodeResult::Found(Some(node_record)) => {
+                local_socket.connect(node_record.socket_addr).await;
+                local_socket.send(message_packet).await.unwrap()
+            }
+            _ => unreachable!("Node wasn't found to ping"),
+        }
     }
 
     // TODO:
@@ -152,7 +158,7 @@ mod tests {
             local_node.table.add_node(&node);
         }
 
-        match local_node.find_node(node_to_find.node_id) {
+        match local_node.find_node(&node_to_find.node_id) {
             FindNodeResult::Found(Some(node)) => {
                 assert_eq!(node.node_id, node_to_find.node_id)
             }
@@ -174,13 +180,13 @@ mod tests {
             }
         }
 
-        match local_node.find_node(node_to_find.node_id) {
+        match local_node.find_node(&node_to_find.node_id) {
             FindNodeResult::NotFound(nodes_returned) => {
-                let node_to_find_index = local_node.table.xor_bucket_index(node_to_find.node_id);
+                let node_to_find_index = local_node.table.xor_bucket_index(&node_to_find.node_id);
 
                 for node in nodes_returned {
                     if let Some(node) = node {
-                        let node_in_bucket_index = local_node.table.xor_bucket_index(node.node_id);
+                        let node_in_bucket_index = local_node.table.xor_bucket_index(&node.node_id);
                         assert_ne!(node_to_find, node);
                         assert_eq!(node_to_find_index, node_in_bucket_index);
                     } else {
@@ -194,7 +200,8 @@ mod tests {
 
     #[tokio::test]
     async fn run_ping() {
-        let (local_node, remote_nodes) = mk_nodes(2);
+        let (mut local_node, remote_nodes) = mk_nodes(2);
+        local_node.table.add_node(&remote_nodes[0]);
 
         let local_socket = local_node.socket().await;
         let remote_socket = UdpSocket::bind(remote_nodes[0].socket_addr).await;
@@ -202,7 +209,7 @@ mod tests {
         match (local_socket, remote_socket) {
             (Ok(local_socket), Ok(remote_socket)) => {
                 let result = local_node
-                    .ping(&local_socket, &remote_nodes[0].socket_addr)
+                    .ping(&local_socket, &remote_nodes[0].node_id)
                     .await;
                 assert_eq!(result, PING_MESSAGE_SIZE)
             }

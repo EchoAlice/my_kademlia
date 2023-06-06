@@ -23,7 +23,7 @@ impl KbucketTable {
     }
 
     pub fn add_node(&mut self, record: &TableRecord) -> bool {
-        match self.search_table(record.node_id) {
+        match self.search_table(&record.node_id) {
             Search::Success(bucket_index, column_index) => false,
             Search::Failure(bucket_index, column_index) => {
                 self.buckets[bucket_index][column_index] = Some(*record);
@@ -32,15 +32,15 @@ impl KbucketTable {
         }
     }
 
-    pub fn search_table(&self, id: Identifier) -> Search {
+    pub fn search_table(&self, id: &Identifier) -> Search {
         let mut last_empty_index = 0;
-        let bucket_index = self.xor_bucket_index(id);
+        let bucket_index = self.xor_bucket_index(&id);
         let mut bucket = self.buckets[bucket_index];
 
         for (i, node) in bucket.iter().enumerate() {
             match node {
                 Some(bucket_node) => {
-                    if bucket_node.node_id == id {
+                    if &bucket_node.node_id == id {
                         return Search::Success(bucket_index, i);
                     } else {
                         continue;
@@ -54,7 +54,7 @@ impl KbucketTable {
         Search::Failure(bucket_index, last_empty_index)
     }
 
-    pub fn xor_bucket_index(&self, identifier: Identifier) -> usize {
+    pub fn xor_bucket_index(&self, identifier: &Identifier) -> usize {
         let x = U256::from(self.local_node_id);
         let y = U256::from(identifier);
         let xor_distance = x ^ y;
