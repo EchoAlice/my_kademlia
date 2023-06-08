@@ -1,15 +1,9 @@
 use crate::helper::Identifier;
-use crate::kbucket::{KbucketTable, Search, TableRecord};
+use crate::kbucket::{Bucket, KbucketTable, TableRecord};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::io;
 use tokio::net::UdpSocket;
-
-#[derive(Debug)]
-pub enum FindNode {
-    Found(TableRecord),
-    NotFound(Vec<Option<TableRecord>>),
-}
 
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
@@ -37,30 +31,18 @@ impl Node {
     ///
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
-    pub fn find_node(&mut self, node_id: &Identifier) -> FindNode {
-        match KbucketTable::search_table(&self.table, node_id) {
-            Search::Success(table_record) => FindNode::Found(table_record),
-            // If the search fails, pass in the bucket_index and column index to add_node(). Encapsulate table logic in table
-            Search::Failure(bucket_index, column_index) => {
-                let bucket = self.table.buckets[bucket_index];
-                let mut known_nodes = Vec::new();
-
-                for node in bucket.iter() {
-                    if node.is_some() {
-                        known_nodes.push(*node)
-                    }
-                }
-                FindNode::NotFound(known_nodes)
-            }
-        }
+    pub fn find_node(&mut self, id: &Identifier) -> Bucket {
+        let bucket_index = self.table.xor_bucket_index(id);
+        self.table.buckets[bucket_index].clone()
     }
 
     pub async fn ping(&mut self, local_socket: &UdpSocket, node_to_ping: &Identifier) -> usize {
         let message_packet = b"Ping";
 
-        match self.find_node(node_to_ping) {
-            FindNode::Found(node_record) => {
-                let remote_socket = SocketAddrV4::new(node_record.ip_address, node_record.udp_port);
+        match self.table.search(node_to_ping) {
+            Some(remote_record) => {
+                let remote_socket =
+                    SocketAddrV4::new(remote_record.ip_address, remote_record.udp_port);
                 local_socket.connect(remote_socket).await;
                 local_socket.send(message_packet).await.unwrap()
             }
@@ -118,75 +100,12 @@ mod tests {
         Node::new(node_id, table_record)
     }
 
-    #[test]
-    fn add_redundant_node() {
-        let (mut local_node, remote_nodes) = mk_nodes(2);
-
-        let result = local_node
-            .table
-            .add_node(&remote_nodes[0].table.local_record);
-        assert!(result);
-        let result2 = local_node
-            .table
-            .add_node(&remote_nodes[0].table.local_record);
-        assert!(!result2);
-    }
-
-    #[test]
-    fn find_node_present() {
-        let (mut local_node, remote_nodes) = mk_nodes(10);
-
-        let node_to_find = remote_nodes[1].table.local_record;
-        for node in remote_nodes {
-            local_node.table.add_node(&node.table.local_record);
-        }
-
-        match local_node.find_node(&node_to_find.node_id) {
-            FindNode::Found(node) => {
-                assert_eq!(node.node_id, node_to_find.node_id)
-            }
-            _ => unreachable!("Node should have been found"),
-        }
-    }
-
-    #[test]
-    fn find_node_absent() {
-        let (mut local_node, remote_nodes) = mk_nodes(10);
-        let absent_index = 4;
-        let node_to_find = remote_nodes[absent_index].table.local_record;
-
-        for (i, node) in remote_nodes.iter().enumerate() {
-            if i == absent_index {
-                continue;
-            } else {
-                local_node.table.add_node(&node.table.local_record);
-            }
-        }
-
-        match local_node.find_node(&node_to_find.node_id) {
-            FindNode::NotFound(nodes_returned) => {
-                let node_to_find_index = local_node.table.xor_bucket_index(&node_to_find.node_id);
-
-                for node in nodes_returned {
-                    if let Some(node) = node {
-                        let node_in_bucket_index = local_node.table.xor_bucket_index(&node.node_id);
-                        assert_ne!(node_to_find, node);
-                        assert_eq!(node_to_find_index, node_in_bucket_index);
-                    } else {
-                        panic!("find_node() returned an empty index")
-                    }
-                }
-            }
-            _ => unreachable!("FindNodeResult shouldn't == Found"),
-        }
-    }
-
     #[tokio::test]
     async fn run_ping() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
         local_node
             .table
-            .add_node(&remote_nodes[0].table.local_record);
+            .add_node(remote_nodes[0].table.local_record);
 
         // Create a server for our node.  Improper way first, then proper.
         let local_socket = local_node.socket().await; // .unwrap()

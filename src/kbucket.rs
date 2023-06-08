@@ -1,15 +1,33 @@
 use crate::helper::{Identifier, U256};
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
-type Bucket = [Option<TableRecord>; BUCKET_SIZE];
+// Should I create a HashMap with a generic K, V or have my hashmap take in an id and TR?
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Bucket {
+    pub map: HashMap<Identifier, TableRecord>,
+    pub limit: usize,
+}
 
-#[derive(Debug)]
-pub enum Search {
-    Success(TableRecord),
-    Failure(usize, usize),
+impl Bucket {
+    fn new(&self, limit: usize) -> Self {
+        Bucket {
+            map: HashMap::new(),
+            limit,
+        }
+    }
+
+    fn add(&mut self, key: Identifier, value: TableRecord) -> Option<TableRecord> {
+        if self.map.len() <= BUCKET_SIZE {
+            self.map.insert(key, value)
+        } else {
+            println!("TODO: Implement record replacement logic!");
+            None
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,7 +43,7 @@ pub struct TableRecord {
 pub struct KbucketTable {
     pub local_node_id: Identifier,
     pub local_record: TableRecord,
-    pub buckets: [Bucket; MAX_BUCKETS],
+    pub buckets: Vec<Bucket>,
 }
 
 impl KbucketTable {
@@ -33,42 +51,29 @@ impl KbucketTable {
         Self {
             local_node_id,
             local_record,
-            buckets: [Default::default(); MAX_BUCKETS],
+            buckets: vec![Default::default(); MAX_BUCKETS],
         }
     }
 
-    // Make add_node JUST add a table record.  Don't search the table too...
-    // Logic for understanding whether you should add the node should go somewhere else.
-    pub fn add_node(&mut self, record: &TableRecord) -> bool {
-        match self.search_table(&record.node_id) {
-            Search::Success(_) => false,
-            Search::Failure(bucket_index, column_index) => {
-                self.buckets[bucket_index][column_index] = Some(*record);
-                true
-            }
-        }
+    // TODO: Remove bool return statement (used in tests rn)
+    pub fn add_node(&mut self, record: TableRecord) -> bool {
+        let bucket_index = self.xor_bucket_index(&record.node_id);
+        self.buckets[bucket_index].add(record.node_id, record);
+        true
     }
 
-    pub fn search_table(&self, id: &Identifier) -> Search {
+    pub fn search(&self, id: &Identifier) -> Option<TableRecord> {
         let mut last_empty_index = 0;
         let bucket_index = self.xor_bucket_index(&id);
-        let mut bucket = self.buckets[bucket_index];
+        let mut bucket = self.buckets[bucket_index].clone();
 
-        for (i, node) in bucket.iter().enumerate() {
-            match node {
-                Some(bucket_node) => {
-                    if &bucket_node.node_id == id {
-                        return Search::Success(*bucket_node);
-                    } else {
-                        continue;
-                    };
-                }
-                _ => {
-                    last_empty_index = i;
-                }
+        for (i, node) in bucket.map.iter().enumerate() {
+            if node.0 == id {
+                let record = node.1.clone();
+                return Some(record);
             }
         }
-        Search::Failure(bucket_index, last_empty_index)
+        None
     }
 
     pub fn xor_bucket_index(&self, identifier: &Identifier) -> usize {
