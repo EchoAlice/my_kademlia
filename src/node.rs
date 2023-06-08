@@ -1,20 +1,14 @@
 use crate::helper::Identifier;
-use crate::kbucket::{KbucketTable, TableRecord};
+use crate::kbucket::{KbucketTable, Search, TableRecord};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::io;
 use tokio::net::UdpSocket;
 
 #[derive(Debug)]
-pub enum FindNodeResult {
-    Found(Option<TableRecord>),
+pub enum FindNode {
+    Found(TableRecord),
     NotFound(Vec<Option<TableRecord>>),
-}
-
-#[derive(Debug)]
-pub enum Search {
-    Success(usize, usize),
-    Failure(usize, usize),
 }
 
 // The main Kademlia client struct.
@@ -43,12 +37,10 @@ impl Node {
     ///
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
-    pub fn find_node(&mut self, node_id: &Identifier) -> FindNodeResult {
+    pub fn find_node(&mut self, node_id: &Identifier) -> FindNode {
         match KbucketTable::search_table(&self.table, node_id) {
-            Search::Success(bucket_index, column_index) => {
-                let bucket = self.table.buckets[bucket_index];
-                FindNodeResult::Found(bucket[column_index])
-            }
+            Search::Success(table_record) => FindNode::Found(table_record),
+            // If the search fails, pass in the bucket_index and column index to add_node(). Encapsulate table logic in table
             Search::Failure(bucket_index, column_index) => {
                 let bucket = self.table.buckets[bucket_index];
                 let mut known_nodes = Vec::new();
@@ -58,7 +50,7 @@ impl Node {
                         known_nodes.push(*node)
                     }
                 }
-                FindNodeResult::NotFound(known_nodes)
+                FindNode::NotFound(known_nodes)
             }
         }
     }
@@ -67,7 +59,7 @@ impl Node {
         let message_packet = b"Ping";
 
         match self.find_node(node_to_ping) {
-            FindNodeResult::Found(Some(node_record)) => {
+            FindNode::Found(node_record) => {
                 let remote_socket = SocketAddrV4::new(node_record.ip_address, node_record.udp_port);
                 local_socket.connect(remote_socket).await;
                 local_socket.send(message_packet).await.unwrap()
@@ -150,7 +142,7 @@ mod tests {
         }
 
         match local_node.find_node(&node_to_find.node_id) {
-            FindNodeResult::Found(Some(node)) => {
+            FindNode::Found(node) => {
                 assert_eq!(node.node_id, node_to_find.node_id)
             }
             _ => unreachable!("Node should have been found"),
@@ -172,7 +164,7 @@ mod tests {
         }
 
         match local_node.find_node(&node_to_find.node_id) {
-            FindNodeResult::NotFound(nodes_returned) => {
+            FindNode::NotFound(nodes_returned) => {
                 let node_to_find_index = local_node.table.xor_bucket_index(&node_to_find.node_id);
 
                 for node in nodes_returned {

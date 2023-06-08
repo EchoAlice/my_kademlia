@@ -1,11 +1,16 @@
 use crate::helper::{Identifier, U256};
-use crate::node::Search;
 use std::net::Ipv4Addr;
 
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<TableRecord>; BUCKET_SIZE];
+
+#[derive(Debug)]
+pub enum Search {
+    Success(TableRecord),
+    Failure(usize, usize),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TableRecord {
@@ -32,9 +37,11 @@ impl KbucketTable {
         }
     }
 
+    // Make add_node JUST add a table record.  Don't search the table too...
+    // Logic for understanding whether you should add the node should go somewhere else.
     pub fn add_node(&mut self, record: &TableRecord) -> bool {
         match self.search_table(&record.node_id) {
-            Search::Success(bucket_index, column_index) => false,
+            Search::Success(_) => false,
             Search::Failure(bucket_index, column_index) => {
                 self.buckets[bucket_index][column_index] = Some(*record);
                 true
@@ -51,7 +58,7 @@ impl KbucketTable {
             match node {
                 Some(bucket_node) => {
                     if &bucket_node.node_id == id {
-                        return Search::Success(bucket_index, i);
+                        return Search::Success(*bucket_node);
                     } else {
                         continue;
                     };
