@@ -1,23 +1,33 @@
 use crate::helper::{Identifier, U256};
-use crate::node::{Search, TableRecord};
+use crate::node::Search;
+use std::net::Ipv4Addr;
 
 const BUCKET_SIZE: usize = 20;
 const MAX_BUCKETS: usize = 256;
 
 type Bucket = [Option<TableRecord>; BUCKET_SIZE];
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TableRecord {
+    pub node_id: Identifier,
+    pub ip_address: Ipv4Addr,
+    pub udp_port: u16,
+}
+
 // Bucket 0: Closest peers from node in network.
 // Bucket 255: Farthest peers from node in network
 #[derive(Debug, PartialEq)]
 pub struct KbucketTable {
     pub local_node_id: Identifier,
+    pub local_record: TableRecord,
     pub buckets: [Bucket; MAX_BUCKETS],
 }
 
 impl KbucketTable {
-    pub fn new(local_node_id: Identifier) -> Self {
+    pub fn new(local_node_id: Identifier, local_record: TableRecord) -> Self {
         Self {
             local_node_id,
+            local_record,
             buckets: [Default::default(); MAX_BUCKETS],
         }
     }

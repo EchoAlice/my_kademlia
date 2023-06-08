@@ -1,5 +1,5 @@
 use crate::helper::Identifier;
-use crate::kbucket::KbucketTable;
+use crate::kbucket::{KbucketTable, TableRecord};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::io;
@@ -17,20 +17,11 @@ pub enum Search {
     Failure(usize, usize),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TableRecord {
-    pub node_id: Identifier,
-    pub ip_address: Ipv4Addr,
-    pub udp_port: u16,
-}
-
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
-// #[derive(Clone, Copy, Debug, PartialEq)]
 #[derive(Debug, PartialEq)]
 pub struct Node {
     pub node_id: Identifier,
-    pub table_record: TableRecord,
     pub table: KbucketTable,
     pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
 }
@@ -39,8 +30,7 @@ impl Node {
     pub fn new(node_id: Identifier, table_record: TableRecord) -> Self {
         Self {
             node_id,
-            table_record,
-            table: KbucketTable::new(node_id),
+            table: KbucketTable::new(node_id, table_record),
             store: Default::default(),
         }
     }
@@ -97,8 +87,8 @@ impl Node {
 
     // ---------------------------------------------------------------------------------------------------
     pub async fn socket(&self) -> io::Result<UdpSocket> {
-        let socket_addr =
-            SocketAddrV4::new(self.table_record.ip_address, self.table_record.udp_port);
+        let table_record = self.table.local_record;
+        let socket_addr = SocketAddrV4::new(table_record.ip_address, table_record.udp_port);
         let socket = UdpSocket::bind(socket_addr).await;
         socket
     }
@@ -140,9 +130,13 @@ mod tests {
     fn add_redundant_node() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
 
-        let result = local_node.table.add_node(&remote_nodes[0].table_record);
+        let result = local_node
+            .table
+            .add_node(&remote_nodes[0].table.local_record);
         assert!(result);
-        let result2 = local_node.table.add_node(&remote_nodes[0].table_record);
+        let result2 = local_node
+            .table
+            .add_node(&remote_nodes[0].table.local_record);
         assert!(!result2);
     }
 
@@ -150,9 +144,9 @@ mod tests {
     fn find_node_present() {
         let (mut local_node, remote_nodes) = mk_nodes(10);
 
-        let node_to_find = remote_nodes[1].table_record;
+        let node_to_find = remote_nodes[1].table.local_record;
         for node in remote_nodes {
-            local_node.table.add_node(&node.table_record);
+            local_node.table.add_node(&node.table.local_record);
         }
 
         match local_node.find_node(&node_to_find.node_id) {
@@ -167,13 +161,13 @@ mod tests {
     fn find_node_absent() {
         let (mut local_node, remote_nodes) = mk_nodes(10);
         let absent_index = 4;
-        let node_to_find = remote_nodes[absent_index].table_record;
+        let node_to_find = remote_nodes[absent_index].table.local_record;
 
         for (i, node) in remote_nodes.iter().enumerate() {
             if i == absent_index {
                 continue;
             } else {
-                local_node.table.add_node(&node.table_record);
+                local_node.table.add_node(&node.table.local_record);
             }
         }
 
@@ -198,7 +192,9 @@ mod tests {
     #[tokio::test]
     async fn run_ping() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
-        local_node.table.add_node(&remote_nodes[0].table_record);
+        local_node
+            .table
+            .add_node(&remote_nodes[0].table.local_record);
 
         // Create a server for our node.  Improper way first, then proper.
         let local_socket = local_node.socket().await; // .unwrap()
