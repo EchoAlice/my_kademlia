@@ -22,7 +22,6 @@ pub struct TableRecord {
     pub node_id: Identifier,
     pub ip_address: Ipv4Addr,
     pub udp_port: u16,
-    pub socket_addr: SocketAddrV4,
 }
 
 // The main Kademlia client struct.
@@ -66,7 +65,6 @@ impl Node {
 
                 for node in bucket.iter() {
                     if node.is_some() {
-                        // Should I be dereferencing the node to send to others?  Or copy the node to share?
                         known_nodes.push(*node)
                     }
                 }
@@ -80,7 +78,8 @@ impl Node {
 
         match self.find_node(node_to_ping) {
             FindNodeResult::Found(Some(node_record)) => {
-                local_socket.connect(node_record.socket_addr).await;
+                let remote_socket = SocketAddrV4::new(node_record.ip_address, node_record.udp_port);
+                local_socket.connect(remote_socket).await;
                 local_socket.send(message_packet).await.unwrap()
             }
             _ => unreachable!("Node wasn't found to ping"),
@@ -90,16 +89,17 @@ impl Node {
     // TODO:
     // pub fn find_value() {}
 
-    // TODO:
-    /// Instructs a node to store a key, value pair for later retrieval.
-    ///
     /// "Most operations are implemented in terms of the lookup proceedure. To store a
     /// <key,value> pair, a participant locates the k closes nodes to the key and sends them store RPCs".
+    ///
+    // TODO: Instructs a node to store a key, value pair for later retrieval.
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
     pub async fn socket(&self) -> io::Result<UdpSocket> {
-        let socket = UdpSocket::bind(self.table_record.socket_addr).await;
+        let socket_addr =
+            SocketAddrV4::new(self.table_record.ip_address, self.table_record.udp_port);
+        let socket = UdpSocket::bind(socket_addr).await;
         socket
     }
 }
@@ -110,21 +110,19 @@ mod tests {
 
     use super::*;
 
-    fn mk_nodes(n: u8) -> (Node, Vec<TableRecord>) {
+    fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
         let ip_address = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
         let port_start = 9000_u16;
 
-        let local_node_record = mk_node_record(&ip_address, port_start, 0);
-        let local_node = Node::new(local_node_record.node_id, local_node_record);
-
-        let remote_node_records: Vec<TableRecord> = (1..n)
-            .map(|i| mk_node_record(&ip_address, port_start, i))
+        let local_node = mk_node(&ip_address, port_start, 0);
+        let remote_nodes: Vec<Node> = (1..n)
+            .map(|i| mk_node(&ip_address, port_start, i))
             .collect();
 
-        (local_node, remote_node_records)
+        (local_node, remote_nodes)
     }
 
-    fn mk_node_record(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> TableRecord {
+    fn mk_node(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> Node {
         let mut node_id = [0_u8; 32];
         node_id[31] += index;
         let udp_port = port_start + index as u16;
@@ -133,29 +131,28 @@ mod tests {
             node_id,
             ip_address: *ip_address,
             udp_port,
-            socket_addr: SocketAddrV4::new(*ip_address, udp_port),
         };
 
-        return table_record;
+        Node::new(node_id, table_record)
     }
 
     #[test]
     fn add_redundant_node() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
 
-        let result = local_node.table.add_node(&remote_nodes[0]);
+        let result = local_node.table.add_node(&remote_nodes[0].table_record);
         assert!(result);
-        let result2 = local_node.table.add_node(&remote_nodes[0]);
+        let result2 = local_node.table.add_node(&remote_nodes[0].table_record);
         assert!(!result2);
     }
 
     #[test]
     fn find_node_present() {
-        let (mut local_node, remote_nodes) = mk_nodes(5);
+        let (mut local_node, remote_nodes) = mk_nodes(10);
 
-        let node_to_find = remote_nodes[1];
+        let node_to_find = remote_nodes[1].table_record;
         for node in remote_nodes {
-            local_node.table.add_node(&node);
+            local_node.table.add_node(&node.table_record);
         }
 
         match local_node.find_node(&node_to_find.node_id) {
@@ -170,13 +167,13 @@ mod tests {
     fn find_node_absent() {
         let (mut local_node, remote_nodes) = mk_nodes(10);
         let absent_index = 4;
-        let node_to_find = remote_nodes[absent_index];
+        let node_to_find = remote_nodes[absent_index].table_record;
 
         for (i, node) in remote_nodes.iter().enumerate() {
             if i == absent_index {
                 continue;
             } else {
-                local_node.table.add_node(&node);
+                local_node.table.add_node(&node.table_record);
             }
         }
 
@@ -201,10 +198,11 @@ mod tests {
     #[tokio::test]
     async fn run_ping() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
-        local_node.table.add_node(&remote_nodes[0]);
+        local_node.table.add_node(&remote_nodes[0].table_record);
 
-        let local_socket = local_node.socket().await;
-        let remote_socket = UdpSocket::bind(remote_nodes[0].socket_addr).await;
+        // Create a server for our node.  Improper way first, then proper.
+        let local_socket = local_node.socket().await; // .unwrap()
+        let remote_socket = remote_nodes[0].socket().await;
 
         match (local_socket, remote_socket) {
             (Ok(local_socket), Ok(remote_socket)) => {
