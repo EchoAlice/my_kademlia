@@ -20,11 +20,10 @@ impl Bucket {
         }
     }
 
-    fn add(&mut self, key: Identifier, value: TableRecord) -> Option<TableRecord> {
+    fn insert(&mut self, key: Identifier, value: TableRecord) -> Option<TableRecord> {
         if self.map.len() <= BUCKET_SIZE {
             self.map.insert(key, value)
         } else {
-            println!("TODO: Implement record replacement logic!");
             None
         }
     }
@@ -56,10 +55,12 @@ impl KbucketTable {
     }
 
     // TODO: Remove bool return statement (used in tests rn)
-    pub fn add_node(&mut self, record: TableRecord) -> bool {
+    pub fn add(&mut self, record: TableRecord) -> bool {
         let bucket_index = self.xor_bucket_index(&record.node_id);
-        self.buckets[bucket_index].add(record.node_id, record);
-        true
+        match self.buckets[bucket_index].insert(record.node_id, record) {
+            Some(_) => false,
+            None => true,
+        }
     }
 
     pub fn get(&self, id: &Identifier) -> Option<TableRecord> {
