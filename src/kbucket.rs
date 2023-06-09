@@ -62,7 +62,7 @@ impl KbucketTable {
         true
     }
 
-    pub fn search(&self, id: &Identifier) -> Option<TableRecord> {
+    pub fn get(&self, id: &Identifier) -> Option<TableRecord> {
         let mut last_empty_index = 0;
         let bucket_index = self.xor_bucket_index(&id);
         let mut bucket = self.buckets[bucket_index].clone();
