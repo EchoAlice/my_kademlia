@@ -39,16 +39,16 @@ pub struct TableRecord {
 // Bucket 255: Farthest peers from node in network
 #[derive(Debug, PartialEq)]
 pub struct KbucketTable {
-    pub local_node_id: Identifier,
-    pub local_record: TableRecord,
+    pub id: Identifier,
+    pub record: TableRecord,
     pub buckets: Vec<Bucket>,
 }
 
 impl KbucketTable {
-    pub fn new(local_node_id: Identifier, local_record: TableRecord) -> Self {
+    pub fn new(id: Identifier, record: TableRecord) -> Self {
         Self {
-            local_node_id,
-            local_record,
+            id,
+            record,
             buckets: vec![Default::default(); MAX_BUCKETS],
         }
     }
@@ -73,9 +73,9 @@ impl KbucketTable {
         self.buckets[bucket_index].map.clone()
     }
 
-    pub fn xor_bucket_index(&self, identifier: &Identifier) -> usize {
-        let x = U256::from(self.local_node_id);
-        let y = U256::from(identifier);
+    pub fn xor_bucket_index(&self, id: &Identifier) -> usize {
+        let x = U256::from(self.id);
+        let y = U256::from(id);
         let xor_distance = x ^ y;
 
         MAX_BUCKETS - (xor_distance.leading_zeros() as usize)
