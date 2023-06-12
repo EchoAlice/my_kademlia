@@ -54,26 +54,23 @@ impl KbucketTable {
     }
 
     // TODO: Remove bool return statement (used in tests rn)
-    pub fn add(&mut self, node_id: Identifier, record: TableRecord) -> bool {
-        let bucket_index = self.xor_bucket_index(&node_id);
-        match self.buckets[bucket_index].insert(node_id, record) {
+    pub fn add(&mut self, id: Identifier, record: TableRecord) -> bool {
+        let bucket_index = self.xor_bucket_index(&id);
+        match self.buckets[bucket_index].insert(id, record) {
             Some(_) => false,
             None => true,
         }
     }
 
-    pub fn get(&self, id: &Identifier) -> Option<TableRecord> {
-        let mut last_empty_index = 0;
+    pub fn get(&self, id: &Identifier) -> Option<&TableRecord> {
         let bucket_index = self.xor_bucket_index(&id);
-        let mut bucket = self.buckets[bucket_index].clone();
+        let mut bucket = &self.buckets[bucket_index];
+        bucket.map.get(id)
+    }
 
-        for (i, node) in bucket.map.iter().enumerate() {
-            if node.0 == id {
-                let record = node.1.clone();
-                return Some(record);
-            }
-        }
-        None
+    pub fn get_bucket_for(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
+        let bucket_index = self.xor_bucket_index(id);
+        self.buckets[bucket_index].map.clone()
     }
 
     pub fn xor_bucket_index(&self, identifier: &Identifier) -> usize {

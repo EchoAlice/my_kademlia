@@ -32,8 +32,7 @@ impl Node {
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
     pub fn find_node(&mut self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
-        let bucket_index = self.table.xor_bucket_index(id);
-        self.table.buckets[bucket_index].map.clone()
+        self.table.get_bucket_for(id)
     }
 
     pub async fn ping(&mut self, local_socket: &UdpSocket, node_to_ping: &Identifier) -> usize {
@@ -70,7 +69,9 @@ impl Node {
 
 #[cfg(test)]
 mod tests {
-    use crate::helper::PING_MESSAGE_SIZE;
+    use std::sync::LockResult;
+
+    use crate::{helper::PING_MESSAGE_SIZE, node};
 
     use super::*;
 
@@ -113,6 +114,27 @@ mod tests {
             remote_nodes[0].table.local_record,
         );
         assert!(!result2);
+    }
+
+    #[test]
+    fn get() {
+        let (mut local_node, remote_nodes) = mk_nodes(5);
+        let node_to_find = &remote_nodes[3];
+        for node in &remote_nodes {
+            local_node
+                .table
+                .add(node.table.local_node_id, node.table.local_record);
+        }
+
+        match local_node.table.get(&node_to_find.node_id) {
+            Some(table_record) => {
+                assert_eq!(table_record, &node_to_find.table.local_record)
+            }
+            _ => unreachable!("Function should have returned a table record"),
+        }
+
+        let result = local_node.table.get(&node_to_find.node_id);
+        println!("Get node result: {:?}", result);
     }
 
     #[test]
