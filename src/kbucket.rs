@@ -31,7 +31,6 @@ impl Bucket {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TableRecord {
-    pub node_id: Identifier,
     pub ip_address: Ipv4Addr,
     pub udp_port: u16,
 }
@@ -55,9 +54,9 @@ impl KbucketTable {
     }
 
     // TODO: Remove bool return statement (used in tests rn)
-    pub fn add(&mut self, record: TableRecord) -> bool {
-        let bucket_index = self.xor_bucket_index(&record.node_id);
-        match self.buckets[bucket_index].insert(record.node_id, record) {
+    pub fn add(&mut self, node_id: Identifier, record: TableRecord) -> bool {
+        let bucket_index = self.xor_bucket_index(&node_id);
+        match self.buckets[bucket_index].insert(node_id, record) {
             Some(_) => false,
             None => true,
         }

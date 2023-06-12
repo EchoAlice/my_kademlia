@@ -31,13 +31,9 @@ impl Node {
     ///
     /// Recieves an id request and returns node information on nodes within
     /// *its closest bucket* (instead of k-closest nodes) to that id.
-    pub fn find_node(&mut self, id: &Identifier) -> Vec<TableRecord> {
+    pub fn find_node(&mut self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
         let bucket_index = self.table.xor_bucket_index(id);
-        self.table.buckets[bucket_index]
-            .map
-            .values()
-            .cloned()
-            .collect()
+        self.table.buckets[bucket_index].map.clone()
     }
 
     pub async fn ping(&mut self, local_socket: &UdpSocket, node_to_ping: &Identifier) -> usize {
@@ -96,7 +92,6 @@ mod tests {
         let udp_port = port_start + index as u16;
 
         let table_record = TableRecord {
-            node_id,
             ip_address: *ip_address,
             udp_port,
         };
@@ -108,25 +103,35 @@ mod tests {
     fn add_redundant_node() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
 
-        let result = local_node.table.add(remote_nodes[0].table.local_record);
+        let result = local_node.table.add(
+            remote_nodes[0].table.local_node_id,
+            remote_nodes[0].table.local_record,
+        );
         assert!(result);
-        let result2 = local_node.table.add(remote_nodes[0].table.local_record);
+        let result2 = local_node.table.add(
+            remote_nodes[0].table.local_node_id,
+            remote_nodes[0].table.local_record,
+        );
         assert!(!result2);
     }
 
     #[test]
     fn find_node() {
         let (mut local_node, remote_nodes) = mk_nodes(10);
-        let node_to_find = remote_nodes[1].table.local_record;
-        let ntf_bucket_index = local_node.table.xor_bucket_index(&node_to_find.node_id);
+        let node_to_find = &remote_nodes[1];
+        let ntf_bucket_index = local_node
+            .table
+            .xor_bucket_index(&node_to_find.table.local_node_id);
 
         for node in &remote_nodes {
-            local_node.table.add(node.table.local_record);
+            local_node
+                .table
+                .add(node.table.local_node_id, node.table.local_record);
         }
 
         let closest_nodes = local_node.find_node(&node_to_find.node_id);
         for node in closest_nodes {
-            let bucket_index = local_node.table.xor_bucket_index(&node.node_id);
+            let bucket_index = local_node.table.xor_bucket_index(&node.0);
             assert_eq!(ntf_bucket_index, bucket_index);
         }
     }
@@ -134,7 +139,10 @@ mod tests {
     #[tokio::test]
     async fn ping() {
         let (mut local_node, remote_nodes) = mk_nodes(2);
-        local_node.table.add(remote_nodes[0].table.local_record);
+        local_node.table.add(
+            remote_nodes[0].table.local_node_id,
+            remote_nodes[0].table.local_record,
+        );
 
         // Create a server for our node.  Improper way first, then proper.
         let local_socket = local_node.socket().await; // .unwrap()
