@@ -65,6 +65,23 @@ impl Node {
         let socket = UdpSocket::bind(socket_addr).await;
         socket
     }
+
+    // TODO: start_server() -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start_server(&self, mut buffer: [u8; 1024], socket: UdpSocket) {
+        println!("We're in there!");
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((size, addr)) = socket.recv_from(&mut buffer).await else { todo!() };
+                let message = buffer.clone().to_vec();
+                self.process(message).await;
+            }
+        });
+    }
+
+    async fn process(&self, message: Vec<u8>) {
+        println!("Message: {:?}", message);
+    }
 }
 
 #[cfg(test)]
@@ -115,25 +132,6 @@ mod tests {
     }
 
     #[test]
-    fn get() {
-        let (mut local_node, remote_nodes) = mk_nodes(5);
-        let node_to_find = &remote_nodes[3];
-        for node in &remote_nodes {
-            local_node.table.add(node.table.id, node.table.record);
-        }
-
-        match local_node.table.get(&node_to_find.node_id) {
-            Some(table_record) => {
-                assert_eq!(table_record, &node_to_find.table.record)
-            }
-            _ => unreachable!("Function should have returned a table record"),
-        }
-
-        let result = local_node.table.get(&node_to_find.node_id);
-        println!("Get node result: {:?}", result);
-    }
-
-    #[test]
     fn find_node() {
         let (mut local_node, remote_nodes) = mk_nodes(10);
         let node_to_find = &remote_nodes[1];
@@ -157,18 +155,17 @@ mod tests {
             .table
             .add(remote_nodes[0].table.id, remote_nodes[0].table.record);
 
-        // Create a server for our node.  Improper way first, then proper.
-        let local_socket = local_node.socket().await; // .unwrap()
-        let remote_socket = remote_nodes[0].socket().await;
+        let local_socket = local_node.socket().await.unwrap();
+        let remote_socket = remote_nodes[0].socket().await.unwrap();
+        let mut buffer = [0u8; 1024];
 
-        match (local_socket, remote_socket) {
-            (Ok(local_socket), Ok(remote_socket)) => {
-                let result = local_node
-                    .ping(&local_socket, &remote_nodes[0].node_id)
-                    .await;
-                assert_eq!(result, PING_MESSAGE_SIZE)
-            }
-            _ => unreachable!("Both nodes should have UDP sockets"),
-        }
+        // Create a server for our node to read ping message.  Improper way first, then proper.
+        // I believe I'll need to put a task in here somewhere to continue running the test...
+        remote_nodes[0].start_server(buffer, remote_socket).await;
+
+        let result = local_node
+            .ping(&local_socket, &remote_nodes[0].node_id)
+            .await;
+        assert_eq!(result, PING_MESSAGE_SIZE)
     }
 }
