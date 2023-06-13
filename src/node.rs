@@ -68,7 +68,7 @@ impl Node {
     }
 
     // TODO: start_server() -> Result<(), Box<dyn std::error::Error>> {
-    pub async fn start_server(&self, mut buffer: [u8; 1024], socket: UdpSocket) {
+    pub async fn start_server(&self, mut buffer: [u8; 4], socket: UdpSocket) {
         println!("Starting server");
         loop {
             let Ok((size, addr)) = socket.recv_from(&mut buffer).await else { todo!() };
@@ -155,7 +155,7 @@ mod tests {
 
         let local_socket = local_node.socket().await.unwrap();
         let remote_socket = remote_nodes[0].socket().await.unwrap();
-        let mut buffer = [0u8; 1024];
+        let mut buffer = [0u8; 4];
         let mut remote_id = [0u8; 32];
         remote_id.copy_from_slice(&remote_nodes[0].node_id);
 
