@@ -42,7 +42,7 @@ impl Node {
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
     pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
-        self.table.lock().unwrap().get_bucket_for(id)
+        self.table.lock().unwrap().get_bucket_for(id).clone()
     }
 
     pub async fn ping(&self, node_to_ping: &Identifier) -> usize {

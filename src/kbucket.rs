@@ -35,7 +35,7 @@ impl Bucket {
     }
 }
 
-// Bucket 0: Closest peers from node in network.
+// Bucket 0: Closest peers to node in network.
 // Bucket 255: Farthest peers from node in network
 #[derive(Clone, Debug, PartialEq)]
 pub struct KbucketTable {
@@ -66,10 +66,9 @@ impl KbucketTable {
         bucket.map.get(id)
     }
 
-    // TODO:  hashmap.clone() -> &hashmap
-    pub fn get_bucket_for(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
+    pub fn get_bucket_for(&self, id: &Identifier) -> &HashMap<[u8; 32], TableRecord> {
         let bucket_index = self.xor_bucket_index(id);
-        self.buckets[bucket_index].map.clone()
+        &self.buckets[bucket_index].map
     }
 
     pub fn xor_bucket_index(&self, id: &Identifier) -> usize {
