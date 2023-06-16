@@ -8,26 +8,30 @@ use tokio::io;
 use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Peer {
+    pub id: Identifier,
+    pub record: TableRecord,
+}
+
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
 #[derive(Clone, Debug)]
 pub struct Node {
-    pub node_id: Identifier,
     pub table: Arc<Mutex<KbucketTable>>,
     pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
     pub socket: Arc<UdpSocket>,
 }
 
 impl Node {
-    pub async fn new(node_id: Identifier, table_record: TableRecord) -> Self {
+    pub async fn new(peer: Peer) -> Self {
         Self {
-            node_id,
-            table: Arc::new(Mutex::new(KbucketTable::new(node_id, table_record))),
+            table: Arc::new(Mutex::new(KbucketTable::new(peer))),
             store: Default::default(),
             socket: Arc::new(
                 UdpSocket::bind(SocketAddrV4::new(
-                    table_record.ip_address,
-                    table_record.udp_port,
+                    peer.record.ip_address,
+                    peer.record.udp_port,
                 ))
                 .await
                 .unwrap(),
@@ -39,7 +43,6 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
     pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
         self.table.lock().unwrap().get_bucket_for(id)
-        // self.table.get_bucket_for(id)
     }
 
     pub async fn ping(&self, node_to_ping: &Identifier) -> usize {
@@ -57,11 +60,6 @@ impl Node {
         }
     }
 
-    async fn pong(&self, addr_to_pong: &SocketAddr) {
-        let message = b"Pong";
-        self.socket.send_to(message, addr_to_pong).await;
-    }
-
     // TODO:
     // pub fn find_value() {}
 
@@ -69,6 +67,11 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
+    async fn pong(&self, addr_to_pong: &SocketAddr) {
+        let message = b"Pong";
+        self.socket.send_to(message, addr_to_pong).await;
+    }
+
     pub async fn start_server(&self, mut buffer: [u8; 1024]) {
         loop {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
@@ -108,27 +111,29 @@ mod tests {
     }
 
     async fn mk_node(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> Node {
-        let mut node_id = [0_u8; 32];
-        node_id[31] += index;
+        let mut id = [0_u8; 32];
+        id[31] += index;
         let udp_port = port_start + index as u16;
 
-        let table_record = TableRecord {
+        let record = TableRecord {
             ip_address: *ip_address,
             udp_port,
         };
+        let peer = Peer { id, record };
 
-        Node::new(node_id, table_record).await
+        Node::new(peer).await
     }
 
+    // Run tests independently.  Tests fail when they're run together bc of addresses being reused.
     #[tokio::test]
     async fn add_redundant_node() {
         let (local_node, remote_nodes) = mk_nodes(2).await;
         let mut local_table = local_node.table.lock().unwrap();
         let remote_table = remote_nodes[0].table.lock().unwrap();
 
-        let result = local_table.add(remote_table.id, remote_table.record);
+        let result = local_table.add(remote_table.peer);
+        let result2 = local_table.add(remote_table.peer);
         assert!(result);
-        let result2 = local_table.add(remote_table.id, remote_table.record);
         assert!(!result2);
     }
 
@@ -136,21 +141,20 @@ mod tests {
     async fn find_node() {
         let (local_node, remote_nodes) = mk_nodes(10).await;
         let mut local_table = local_node.table.lock().unwrap();
+        let node_to_find = remote_nodes[1].table.lock().unwrap().peer.id;
 
-        let node_to_find = &remote_nodes[1];
-        let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find.node_id);
+        let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
 
         for node in &remote_nodes {
-            let remote_table = node.table.lock().unwrap();
-            local_table.add(remote_table.id, remote_table.record);
+            let remote_peer = node.table.lock().unwrap().peer;
+            local_table.add(remote_peer);
         }
-
         drop(local_table);
-        let closest_nodes = local_node.find_node(&node_to_find.node_id);
+
+        let closest_nodes = local_node.find_node(&node_to_find);
 
         for node in closest_nodes {
             let bucket_index = local_node.table.lock().unwrap().xor_bucket_index(&node.0);
-            println!("{}, {}", ntf_bucket_index, bucket_index);
             assert_eq!(ntf_bucket_index, bucket_index);
         }
     }
@@ -159,12 +163,11 @@ mod tests {
     async fn ping() {
         let (local_node, remote_nodes) = mk_nodes(2).await;
         let mut local_table = local_node.table.lock().unwrap();
-        let remote_table = remote_nodes[0].table.lock().unwrap();
-        local_table.add(remote_table.id, remote_table.record);
-
+        let remote_peer = remote_nodes[0].table.lock().unwrap().peer;
+        local_table.add(remote_peer);
         drop(local_table);
 
-        let remote_id = remote_nodes[0].node_id;
+        let remote_id = remote_peer.id;
         let local_node_copy = local_node.clone();
         let remote_node_copy = remote_nodes[0].clone();
 
