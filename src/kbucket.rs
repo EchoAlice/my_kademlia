@@ -19,7 +19,7 @@ pub struct Bucket {
 }
 
 impl Bucket {
-    fn new(&self, limit: usize) -> Self {
+    fn new(limit: usize) -> Self {
         Bucket {
             map: HashMap::new(),
             limit,
@@ -54,14 +54,14 @@ impl KbucketTable {
     pub fn add(&mut self, peer: Peer) -> bool {
         let bucket_index = self.xor_bucket_index(&peer.id);
 
-        match self.buckets[bucket_index].add(peer) {
-            Some(_) => false,
-            None => true,
+        match self.buckets[bucket_index].add(peer).is_none() {
+            true => true,
+            false => false,
         }
     }
 
     pub fn get(&self, id: &Identifier) -> Option<&TableRecord> {
-        let bucket_index = self.xor_bucket_index(&id);
+        let bucket_index = self.xor_bucket_index(id);
         let mut bucket = &self.buckets[bucket_index];
         bucket.map.get(id)
     }

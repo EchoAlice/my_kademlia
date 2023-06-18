@@ -1,4 +1,4 @@
-use crate::helper::Identifier;
+use crate::helper::{Identifier, PING_MESSAGE_SIZE};
 use crate::kbucket::{Bucket, KbucketTable, TableRecord};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -47,17 +47,15 @@ impl Node {
 
     pub async fn ping(&self, node_to_ping: &Identifier) -> usize {
         let message = b"Ping";
-        let table = self.table.lock().unwrap();
 
-        match table.get(node_to_ping) {
-            Some(remote_record) => {
-                let remote_socket =
-                    SocketAddrV4::new(remote_record.ip_address, remote_record.udp_port);
-                self.socket.connect(remote_socket).await;
-                self.socket.send(message).await.unwrap()
-            }
-            _ => unreachable!("Node wasn't found to ping"),
-        }
+        let remote_socket = {
+            let table = self.table.lock().unwrap();
+            let remote_record = table.get(node_to_ping).unwrap();
+            SocketAddrV4::new(remote_record.ip_address, remote_record.udp_port)
+        };
+
+        self.socket.connect(remote_socket).await;
+        self.socket.send(message).await.unwrap()
     }
 
     // TODO:
@@ -124,7 +122,7 @@ mod tests {
         Node::new(peer).await
     }
 
-    // Run tests independently.  Tests fail when they're run together bc of addresses being reused.
+    // Run tests independently.  Tests fail when they're run together bc of addresses reuse.
     #[tokio::test]
     async fn add_redundant_node() {
         let (local_node, remote_nodes) = mk_nodes(2).await;
@@ -140,16 +138,18 @@ mod tests {
     #[tokio::test]
     async fn find_node() {
         let (local_node, remote_nodes) = mk_nodes(10).await;
-        let mut local_table = local_node.table.lock().unwrap();
-        let node_to_find = remote_nodes[1].table.lock().unwrap().peer.id;
 
-        let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
+        let (node_to_find, ntf_bucket_index) = {
+            let mut local_table = local_node.table.lock().unwrap();
+            let node_to_find = remote_nodes[1].table.lock().unwrap().peer.id;
+            let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
 
-        for node in &remote_nodes {
-            let remote_peer = node.table.lock().unwrap().peer;
-            local_table.add(remote_peer);
-        }
-        drop(local_table);
+            for node in &remote_nodes {
+                let remote_peer = node.table.lock().unwrap().peer;
+                local_table.add(remote_peer);
+            }
+            (node_to_find, ntf_bucket_index)
+        };
 
         let closest_nodes = local_node.find_node(&node_to_find);
 
@@ -162,12 +162,14 @@ mod tests {
     #[tokio::test]
     async fn ping() {
         let (local_node, remote_nodes) = mk_nodes(2).await;
-        let mut local_table = local_node.table.lock().unwrap();
-        let remote_peer = remote_nodes[0].table.lock().unwrap().peer;
-        local_table.add(remote_peer);
-        drop(local_table);
 
-        let remote_id = remote_peer.id;
+        let remote_id = {
+            let mut local_table = local_node.table.lock().unwrap();
+            let remote_peer = remote_nodes[0].table.lock().unwrap().peer;
+            local_table.add(remote_peer);
+            remote_peer.id
+        };
+
         let local_node_copy = local_node.clone();
         let remote_node_copy = remote_nodes[0].clone();
 
@@ -176,7 +178,6 @@ mod tests {
             println!("Starting remote server");
             remote_node_copy.start_server(buffer1).await;
         });
-
         tokio::spawn(async move {
             let mut buffer2 = [0u8; 1024];
             println!("Starting local server");
@@ -184,7 +185,8 @@ mod tests {
         });
 
         let result = local_node.ping(&remote_id).await;
+
         tokio::time::sleep(Duration::from_secs(1)).await;
-        // TODO:  Create assertion logic (utilizing a transcript?)
+        assert_eq!(result, PING_MESSAGE_SIZE);
     }
 }
