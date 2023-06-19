@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 sha2 = "0.10.6"
+tokio = { version = "1.28.2", features = ["full"] }
 uint = "0.9.5"

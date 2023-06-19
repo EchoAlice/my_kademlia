@@ -3,9 +3,10 @@
 // to address further
 #![allow(clippy::assign_op_pattern)]
 
-use std::net::Ipv4Addr;
+// use tokio::sync::mpsc;
 use uint::*;
 
+pub const PING_MESSAGE_SIZE: usize = 4;
 pub type Identifier = [u8; 32];
 
 construct_uint! {
@@ -13,9 +14,10 @@ construct_uint! {
     pub struct U256(4);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Node {
-    pub ip_address: Ipv4Addr,
-    pub udp_port: u16,
-    pub node_id: Identifier,
+/*
+pub struct Packet {}
+pub struct Handler {
+    // Channel to respond to send requests
+    handler_recv: mpsc::Receiver<Packet>,
 }
+*/
