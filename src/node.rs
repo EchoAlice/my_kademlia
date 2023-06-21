@@ -8,6 +8,25 @@ use tokio::io;
 use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
+const NODES_TO_QUERY: usize = 1; // "a"
+
+#[derive(Debug)]
+pub enum Message {
+    Ping([u8; 1024]), // Define ping as -> [u8; 1024]
+    Pong([u8; 1024]),
+    // FindNode,
+    // FoundNode,
+}
+
+impl Message {
+    fn to_bytes(&self) -> [u8; 1024] {
+        match self {
+            Message::Ping(bytes) => bytes.clone(),
+            Message::Pong(bytes) => bytes.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
     pub id: Identifier,
@@ -21,6 +40,7 @@ pub struct Node {
     pub table: Arc<Mutex<KbucketTable>>,
     pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
     pub socket: Arc<UdpSocket>,
+    // messages_seen
 }
 
 impl Node {
@@ -41,10 +61,32 @@ impl Node {
 
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
+
+    /*
+        "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
+        to some given node ID.  We call this procedure a **node lookup**".
+
+        How is a node lookup different from the find_node() RPC?
+    */
+
+    // TODO:  1. Set up networking communication for find_node()
+    //        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
     pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
+        /*
+        // Checks local routing table before asking for nodes from the network
+        let local_table = self.table.lock().unwrap();
+        match local_table.get(id) {
+            Some(table_record) => {}
+            // Create requesting logic here:   Iterative or recursive?
+            None => {}
+        }
+        */
+        // REMOVE
         self.table.lock().unwrap().get_bucket_for(id).clone()
     }
 
+    // TODO: Returns identifier
+    // TODO: Add necessary info to ping message
     pub async fn ping(&self, node_to_ping: &Identifier) -> usize {
         let message = b"Ping";
 
@@ -70,20 +112,25 @@ impl Node {
         self.socket.send_to(message, addr_to_pong).await;
     }
 
-    pub async fn start_server(&self, mut buffer: [u8; 1024]) {
+    pub async fn start_server(&self, mut buffer: Message) {
         loop {
-            let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
+            let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer.to_bytes()).await else { todo!() };
             self.process(&buffer, &sender_addr).await;
         }
     }
 
-    async fn process(&self, message: &[u8], sender_addr: &SocketAddr) {
-        println!("Message: {:?}", message);
-        if &message[0..4] == b"Ping" {
-            self.pong(sender_addr).await;
-        }
-        if &message[0..4] == b"Pong" {
-            println!("Message was pong");
+    // Implement concept of outbound request -> response to understand .  Track with a map and/or send randomized number
+    // Create a channel to pass info to a _______ (handle?)
+    async fn process(&self, message: &Message, sender_addr: &SocketAddr) {
+        match message {
+            Message::Ping(_) => {
+                println!("Message: {:?}", message);
+                self.pong(sender_addr).await;
+            }
+            Message::Pong(_) => {
+                println!("Message was pong")
+            } // Message::FindNode => {}
+              // Message::FoundNode => {}
         }
     }
 }
@@ -122,7 +169,8 @@ mod tests {
         Node::new(peer).await
     }
 
-    // Run tests independently.  Tests fail when they're run together bc of addresses reuse.
+    // Run tests independently.  Tests fail when they're run together bc of address reuse.
+    // If you don't give the thing a port, a free port is given automatically
     #[tokio::test]
     async fn add_redundant_node() {
         let (local_node, remote_nodes) = mk_nodes(2).await;
@@ -173,20 +221,22 @@ mod tests {
         let local_node_copy = local_node.clone();
         let remote_node_copy = remote_nodes[0].clone();
 
+        // Maybe pass in remote_node
         tokio::spawn(async move {
-            let mut buffer1 = [0u8; 1024];
+            let mut buffer1 = Message::Ping(([0u8; 1024]));
             println!("Starting remote server");
             remote_node_copy.start_server(buffer1).await;
         });
         tokio::spawn(async move {
-            let mut buffer2 = [0u8; 1024];
+            let mut buffer2 = Message::Ping(([0u8; 1024]));
             println!("Starting local server");
             local_node_copy.start_server(buffer2).await;
         });
 
+        // Make ping return unique identifier
         let result = local_node.ping(&remote_id).await;
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(result, PING_MESSAGE_SIZE);
     }
 }
