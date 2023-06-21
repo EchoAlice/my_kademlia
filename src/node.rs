@@ -18,6 +18,7 @@ pub enum Message {
     // FoundNode,
 }
 
+// TODO:  Should Ping and Pong take in a reference to bytes?  Or take in bytes?
 impl Message {
     fn to_bytes(&self) -> [u8; 1024] {
         match self {
@@ -118,9 +119,9 @@ impl Node {
 
             // Converts bytes to message type
             if &buffer[0..4] == b"Ping" {
-                self.process(Message::Ping(buffer), &sender_addr).await;
+                self.process(&Message::Ping(buffer), &sender_addr).await;
             } else if &buffer[0..4] == b"Pong" {
-                self.process(Message::Pong(buffer), &sender_addr).await;
+                self.process(&Message::Pong(buffer), &sender_addr).await;
             } else {
                 println!("Message wasn't ping or pong");
             }
@@ -128,7 +129,7 @@ impl Node {
     }
 
     // Implement concept of outbound request -> response.  Track with a map and/or send a randomized number
-    async fn process(&self, message: Message, sender_addr: &SocketAddr) {
+    async fn process(&self, message: &Message, sender_addr: &SocketAddr) {
         match message {
             Message::Ping(x) => {
                 println!("Message: {:?}", message);
