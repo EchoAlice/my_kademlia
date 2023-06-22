@@ -19,16 +19,6 @@ pub enum Message {
     // FoundNode,
 }
 
-// TODO:  Should Ping and Pong take in a reference to bytes?  Or take in bytes?
-impl Message {
-    fn to_bytes(&self) -> [u8; 1024] {
-        match self {
-            Message::Ping(bytes) => bytes.clone(),
-            Message::Pong(bytes) => bytes.clone(),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
     pub id: Identifier,
@@ -37,11 +27,12 @@ pub struct Peer {
 
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
+// TODO:  Place all Arc<Mutex<things>> in a state struct
 #[derive(Clone, Debug)]
 pub struct Node {
     pub table: Arc<Mutex<KbucketTable>>,
     pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
-    pub outbound_requests: HashMap<Identifier, u8>, // I believe this only accounts for one message being sent to a socket address
+    pub outbound_requests: Arc<Mutex<HashMap<Identifier, u8>>>,
     pub socket: Arc<UdpSocket>,
 }
 
@@ -90,11 +81,11 @@ impl Node {
 
         self.socket.connect(remote_socket).await;
         let message = self.create_message(b"Ping", &local_id, session_number);
-        let insert_session_result = self.outbound_requests.insert(node_to_ping, session_number);
-        println!(
-            "Outbound reqs from within ping(): {:?}",
-            self.outbound_requests
-        );
+        let insert_session_result = self
+            .outbound_requests
+            .lock()
+            .unwrap()
+            .insert(node_to_ping, session_number);
         self.socket.send(&message).await.unwrap()
     }
 
@@ -128,8 +119,6 @@ impl Node {
     }
 
     pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
-        let local_id = { self.table.lock().unwrap().peer.id };
-        println!("Local id in start_server {:?}", local_id);
         loop {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
 
@@ -137,10 +126,6 @@ impl Node {
             if &buffer[0..4] == b"Ping" {
                 self.process(&Message::Ping(buffer), &sender_addr).await;
             } else if &buffer[0..4] == b"Pong" {
-                println!(
-                    "Outbound reqs from within start_server(): {:?}",
-                    self.outbound_requests
-                );
                 self.process(&Message::Pong(buffer), &sender_addr).await;
             } else {
                 println!("Message wasn't ping or pong");
@@ -148,7 +133,6 @@ impl Node {
         }
     }
 
-    // TODO:  Implement concept of outbound request -> response.  Track with a map and/or send a randomized number
     async fn process(&mut self, message: &Message, sender_addr: &SocketAddr) {
         match message {
             Message::Ping(datagram) => {
@@ -156,25 +140,16 @@ impl Node {
                 let session_number = datagram[36];
                 self.pong(session_number, sender_addr).await;
             }
-            // TODO:  Why is the session number not being stored
-            // Verify that the pong message returns the correct sequence number
             Message::Pong(datagram) => {
-                println!("\n");
                 let node_id = &datagram[4..36];
-                println!(
-                    "Outbound reqs from within process(): {:?}",
-                    self.outbound_requests
-                );
-                let result = self.outbound_requests.get(node_id);
-                println!("Result: {:?}", result);
-
-                if let Some(session_number) = self.outbound_requests.get(node_id) {
-                    println!(
-                        "Session_number in db {:?} and within pong message: {}",
-                        session_number, datagram[36]
-                    );
+                if let Some(session_number) = self.outbound_requests.lock().unwrap().get(node_id) {
+                    if session_number == &datagram[36] {
+                        println!("Successful ping");
+                    } else {
+                        println!("Unsuccessful ping");
+                    }
                 } else {
-                    println!("There was no session number");
+                    println!("No session number for remote node");
                 }
             }
         }
@@ -274,6 +249,7 @@ mod tests {
             let mut buffer = [0u8; 1024];
             local_node_copy.start_server(buffer).await;
         });
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         // TODO:  Keep track of ping/pong messages w/ session_number
         let result = local_node.ping(remote_id).await;
