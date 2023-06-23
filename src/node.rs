@@ -11,7 +11,7 @@ use tokio::time::Duration;
 
 const NODES_TO_QUERY: usize = 1; // "a"
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Message {
     Ping([u8; 1024]),
     Pong([u8; 1024]),
@@ -27,13 +27,15 @@ pub struct Peer {
 
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
-// TODO:  Place all Arc<Mutex<things>> in a state struct
+// TODO:  Create a message logger for a node.
+//        Place all Arc<Mutex<things>> in a state struct
 #[derive(Clone, Debug)]
 pub struct Node {
     pub table: Arc<Mutex<KbucketTable>>,
     pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
     pub outbound_requests: Arc<Mutex<HashMap<Identifier, u8>>>,
     pub socket: Arc<UdpSocket>,
+    pub messages: Arc<Mutex<Vec<Message>>>,
 }
 
 impl Node {
@@ -50,6 +52,7 @@ impl Node {
                 .await
                 .unwrap(),
             ),
+            messages: Default::default(),
         }
     }
 
@@ -60,14 +63,14 @@ impl Node {
     /// to some given node ID.  We call this procedure a **node lookup**".
     ///
     /// How is a node lookup different from the find_node() RPC?
-
-    // TODO:  1. Set up networking communication for find_node()
-    //        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
+    ///
+    /// TODO:  1. Set up networking communication for find_node()
+    ///        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
     pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
         self.table.lock().unwrap().get_bucket_for(id).clone()
     }
 
-    pub async fn ping(&mut self, node_to_ping: Identifier) -> usize {
+    pub async fn ping(&mut self, node_to_ping: Identifier) -> u8 {
         let session_number: u8 = rand::thread_rng().gen_range(0..=255);
 
         let (local_id, remote_socket) = {
@@ -78,15 +81,17 @@ impl Node {
                 SocketAddr::new(remote_record.ip_address, remote_record.udp_port),
             )
         };
+        let message = self.create_message(b"Ping", &local_id, session_number);
 
         self.socket.connect(remote_socket).await;
-        let message = self.create_message(b"Ping", &local_id, session_number);
-        let insert_session_result = self
-            .outbound_requests
+        self.outbound_requests
             .lock()
             .unwrap()
             .insert(node_to_ping, session_number);
-        self.socket.send(&message).await.unwrap()
+
+        self.messages.lock().unwrap().push(Message::Ping(message));
+        self.socket.send(&message).await.unwrap();
+        session_number
     }
 
     // TODO:
@@ -96,6 +101,8 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
+
+    // Change message for first 5 bytes to contain message type and session number.  Then have node_id
     fn create_message(
         &self,
         mtype: &[u8; 4],
@@ -104,8 +111,8 @@ impl Node {
     ) -> [u8; 1024] {
         let mut message = [0u8; 1024];
         message[0..4].copy_from_slice(mtype);
-        message[4..36].copy_from_slice(local_id);
-        message[36] = session_number;
+        message[4] = session_number;
+        message[5..37].copy_from_slice(local_id);
         message
     }
 
@@ -115,6 +122,7 @@ impl Node {
             table.peer.id
         };
         let message = self.create_message(b"Pong", &local_id, session_number);
+        self.messages.lock().unwrap().push(Message::Pong(message));
         self.socket.send_to(&message, addr_to_pong).await;
     }
 
@@ -122,29 +130,36 @@ impl Node {
         loop {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
 
-            // Converts received socket bytes to message type
+            // Converts received socket bytes to message type.
             if &buffer[0..4] == b"Ping" {
-                self.process(&Message::Ping(buffer), &sender_addr).await;
+                self.process(Message::Ping(buffer), &sender_addr).await;
             } else if &buffer[0..4] == b"Pong" {
-                self.process(&Message::Pong(buffer), &sender_addr).await;
+                self.process(Message::Pong(buffer), &sender_addr).await;
             } else {
                 println!("Message wasn't ping or pong");
             }
         }
     }
 
-    async fn process(&mut self, message: &Message, sender_addr: &SocketAddr) {
+    async fn process(&mut self, message: Message, sender_addr: &SocketAddr) {
         match message {
             Message::Ping(datagram) => {
-                let node_id = &datagram[4..36];
-                let session_number = datagram[36];
+                self.messages.lock().unwrap().push(message);
+
+                let session_number = datagram[4];
+                let node_id = &datagram[5..37];
                 self.pong(session_number, sender_addr).await;
             }
             Message::Pong(datagram) => {
-                let node_id = &datagram[4..36];
-                if let Some(session_number) = self.outbound_requests.lock().unwrap().get(node_id) {
-                    if session_number == &datagram[36] {
-                        println!("Successful ping");
+                let mut outbound_requests = self.outbound_requests.lock().unwrap();
+                let mut messages = self.messages.lock().unwrap();
+                let node_id = &datagram[5..37];
+
+                if let Some(session_number) = outbound_requests.get(node_id) {
+                    if session_number == &datagram[4] {
+                        println!("Successful ping. Removing k,v");
+                        messages.push(message);
+                        outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
                     } else {
                         println!("Unsuccessful ping");
                     }
@@ -231,6 +246,8 @@ mod tests {
     #[tokio::test]
     async fn ping() {
         let (mut local_node, mut remote_nodes) = mk_nodes(2).await;
+        let mut local_node_copy = local_node.clone();
+        let mut remote_node_copy = remote_nodes[0].clone();
 
         let remote_id = {
             let mut local_table = local_node.table.lock().unwrap();
@@ -239,24 +256,22 @@ mod tests {
             remote_peer.id
         };
 
-        let mut local_node_copy = local_node.clone();
-
         tokio::spawn(async move {
             let mut buffer = [0u8; 1024];
-            remote_nodes[0].start_server(buffer).await;
+            remote_node_copy.start_server(buffer).await;
         });
         tokio::spawn(async move {
             let mut buffer = [0u8; 1024];
             local_node_copy.start_server(buffer).await;
         });
+
         tokio::time::sleep(Duration::from_secs(1)).await;
+        let session_number = local_node.ping(remote_id).await;
 
-        // TODO:  Keep track of ping/pong messages w/ session_number
-        let result = local_node.ping(remote_id).await;
-
-        // Need to sleep for servers to run
         tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // assert_eq!(result, PING_MESSAGE_SIZE);
+        let local_messages = local_node.messages.lock().unwrap();
+        let remote_messages = remote_nodes[0].messages.lock().unwrap();
+        assert_eq!(local_messages[0], remote_messages[0]);
+        assert_eq!(local_messages[1], remote_messages[1]);
     }
 }
