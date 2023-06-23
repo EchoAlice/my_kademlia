@@ -25,25 +25,26 @@ pub struct Peer {
     pub record: TableRecord,
 }
 
+#[derive(Clone, Debug)]
+pub struct State {
+    pub table: KbucketTable,
+    pub outbound_requests: HashMap<Identifier, u8>,
+}
+
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
-// TODO:  Create a message logger for a node.
-//        Place all Arc<Mutex<things>> in a state struct
 #[derive(Clone, Debug)]
 pub struct Node {
-    pub table: Arc<Mutex<KbucketTable>>,
-    pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
-    pub outbound_requests: Arc<Mutex<HashMap<Identifier, u8>>>,
+    pub node_id: Identifier,
     pub socket: Arc<UdpSocket>,
     pub messages: Arc<Mutex<Vec<Message>>>,
+    pub state: Arc<Mutex<State>>,
 }
 
 impl Node {
     pub async fn new(peer: Peer) -> Self {
         Self {
-            table: Arc::new(Mutex::new(KbucketTable::new(peer))),
-            store: Default::default(),
-            outbound_requests: Default::default(),
+            node_id: peer.id,
             socket: Arc::new(
                 UdpSocket::bind(SocketAddr::new(
                     peer.record.ip_address,
@@ -53,6 +54,10 @@ impl Node {
                 .unwrap(),
             ),
             messages: Default::default(),
+            state: Arc::new(Mutex::new(State {
+                table: (KbucketTable::new(peer)),
+                outbound_requests: (Default::default()),
+            })),
         }
     }
 
@@ -67,14 +72,14 @@ impl Node {
     /// TODO:  1. Set up networking communication for find_node()
     ///        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
     pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
-        self.table.lock().unwrap().get_bucket_for(id).clone()
+        self.state.lock().unwrap().table.get_bucket_for(id).clone()
     }
 
     pub async fn ping(&mut self, node_to_ping: Identifier) -> u8 {
         let session_number: u8 = rand::thread_rng().gen_range(0..=255);
 
         let (local_id, remote_socket) = {
-            let table = self.table.lock().unwrap();
+            let table = &self.state.lock().unwrap().table;
             let remote_record = table.get(&node_to_ping).unwrap();
             (
                 table.peer.id,
@@ -84,9 +89,10 @@ impl Node {
         let message = self.create_message(b"Ping", &local_id, session_number);
 
         self.socket.connect(remote_socket).await;
-        self.outbound_requests
+        self.state
             .lock()
             .unwrap()
+            .outbound_requests
             .insert(node_to_ping, session_number);
 
         self.messages.lock().unwrap().push(Message::Ping(message));
@@ -101,8 +107,6 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
-
-    // Change message for first 5 bytes to contain message type and session number.  Then have node_id
     fn create_message(
         &self,
         mtype: &[u8; 4],
@@ -118,7 +122,7 @@ impl Node {
 
     async fn pong(&self, session_number: u8, addr_to_pong: &SocketAddr) {
         let local_id = {
-            let table = self.table.lock().unwrap();
+            let table = &self.state.lock().unwrap().table;
             table.peer.id
         };
         let message = self.create_message(b"Pong", &local_id, session_number);
@@ -151,7 +155,7 @@ impl Node {
                 self.pong(session_number, sender_addr).await;
             }
             Message::Pong(datagram) => {
-                let mut outbound_requests = self.outbound_requests.lock().unwrap();
+                let mut outbound_requests = &mut self.state.lock().unwrap().outbound_requests;
                 let mut messages = self.messages.lock().unwrap();
                 let node_id = &datagram[5..37];
 
@@ -210,8 +214,8 @@ mod tests {
     #[tokio::test]
     async fn add_redundant_node() {
         let (local_node, remote_nodes) = mk_nodes(2).await;
-        let mut local_table = local_node.table.lock().unwrap();
-        let remote_table = remote_nodes[0].table.lock().unwrap();
+        let mut local_table = &mut local_node.state.lock().unwrap().table;
+        let remote_table = &remote_nodes[0].state.lock().unwrap().table;
 
         let result = local_table.add(remote_table.peer);
         let result2 = local_table.add(remote_table.peer);
@@ -224,12 +228,12 @@ mod tests {
         let (local_node, remote_nodes) = mk_nodes(10).await;
 
         let (node_to_find, ntf_bucket_index) = {
-            let mut local_table = local_node.table.lock().unwrap();
-            let node_to_find = remote_nodes[1].table.lock().unwrap().peer.id;
+            let mut local_table = &mut local_node.state.lock().unwrap().table;
+            let node_to_find = remote_nodes[1].node_id;
             let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
 
             for node in &remote_nodes {
-                let remote_peer = node.table.lock().unwrap().peer;
+                let remote_peer = node.state.lock().unwrap().table.peer;
                 local_table.add(remote_peer);
             }
             (node_to_find, ntf_bucket_index)
@@ -238,7 +242,12 @@ mod tests {
         let closest_nodes = local_node.find_node(&node_to_find);
 
         for node in closest_nodes {
-            let bucket_index = local_node.table.lock().unwrap().xor_bucket_index(&node.0);
+            let bucket_index = local_node
+                .state
+                .lock()
+                .unwrap()
+                .table
+                .xor_bucket_index(&node.0);
             assert_eq!(ntf_bucket_index, bucket_index);
         }
     }
@@ -250,8 +259,8 @@ mod tests {
         let mut remote_node_copy = remote_nodes[0].clone();
 
         let remote_id = {
-            let mut local_table = local_node.table.lock().unwrap();
-            let remote_peer = remote_nodes[0].table.lock().unwrap().peer;
+            let mut local_table = &mut local_node.state.lock().unwrap().table;
+            let remote_peer = remote_nodes[0].state.lock().unwrap().table.peer;
             local_table.add(remote_peer);
             remote_peer.id
         };
