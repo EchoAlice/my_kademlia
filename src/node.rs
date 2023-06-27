@@ -15,7 +15,7 @@ const NODES_TO_QUERY: usize = 1; // "a"
 pub enum Message {
     Ping([u8; 1024]),
     Pong([u8; 1024]),
-    // FindNode,
+    FindNode([u8; 1024]),
     // FoundNode,
 }
 
@@ -135,12 +135,21 @@ impl Node {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
 
             // Converts received socket bytes to message type.
-            if &buffer[0..4] == b"Ping" {
-                self.process(Message::Ping(buffer), &sender_addr).await;
-            } else if &buffer[0..4] == b"Pong" {
-                self.process(Message::Pong(buffer), &sender_addr).await;
-            } else {
-                println!("Message wasn't ping or pong");
+            match &buffer[0..4] {
+                b"Ping" => {
+                    self.process(Message::Ping(buffer), &sender_addr).await;
+                }
+                b"Pong" => {
+                    self.process(Message::Pong(buffer), &sender_addr).await;
+                }
+                b"Node" => {
+                    // TODO:
+                    // self.process(Message::FindNode(buffer), &sender_addr).await;
+                    println!("TODO: Implement Find Node logic");
+                }
+                _ => {
+                    println!("Message wasn't legitimate");
+                }
             }
         }
     }
@@ -171,6 +180,7 @@ impl Node {
                     println!("No session number for remote node");
                 }
             }
+            _ => println!("Message was not ping, nor pong"),
         }
     }
 }
@@ -227,6 +237,7 @@ mod tests {
     async fn find_node() {
         let (local_node, remote_nodes) = mk_nodes(10).await;
 
+        // Populates local table.  Gets proper bucket index for future find_node query
         let (node_to_find, ntf_bucket_index) = {
             let mut local_table = &mut local_node.state.lock().unwrap().table;
             let node_to_find = remote_nodes[1].node_id;
@@ -241,6 +252,7 @@ mod tests {
 
         let closest_nodes = local_node.find_node(&node_to_find);
 
+        // Verifies that nodes returned from *local* find_node query are correct.
         for node in closest_nodes {
             let bucket_index = local_node
                 .state
