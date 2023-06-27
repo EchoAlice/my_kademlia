@@ -71,7 +71,7 @@ impl Node {
     ///
     /// TODO:  1. Set up networking communication for find_node()
     ///        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
-    pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
+    pub async fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
         self.state.lock().unwrap().table.get_bucket_for(id).clone()
     }
 
@@ -143,9 +143,7 @@ impl Node {
                     self.process(Message::Pong(buffer), &sender_addr).await;
                 }
                 b"Node" => {
-                    // TODO:
-                    // self.process(Message::FindNode(buffer), &sender_addr).await;
-                    println!("TODO: Implement Find Node logic");
+                    self.process(Message::FindNode(buffer), &sender_addr).await;
                 }
                 _ => {
                     println!("Message wasn't legitimate");
@@ -179,6 +177,9 @@ impl Node {
                 } else {
                     println!("No session number for remote node");
                 }
+            }
+            Message::FindNode(datagram) => {
+                println!("FindNode datagram: {:?}", datagram)
             }
             _ => println!("Message was not ping, nor pong"),
         }
@@ -233,24 +234,24 @@ mod tests {
         assert!(!result2);
     }
 
+    // TODO: Figure out where to place messaging logic
     #[tokio::test]
-    async fn find_node() {
+    async fn get_bucket_for() {
         let (local_node, remote_nodes) = mk_nodes(10).await;
 
-        // Populates local table.  Gets proper bucket index for future find_node query
-        let (node_to_find, ntf_bucket_index) = {
+        // Populates local table and gather necessary data from inner scope
+        let (node_to_find, ntf_bucket_index, closest_nodes) = {
             let mut local_table = &mut local_node.state.lock().unwrap().table;
             let node_to_find = remote_nodes[1].node_id;
             let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
+            let closest_nodes = local_table.get_bucket_for(&node_to_find).clone();
 
             for node in &remote_nodes {
                 let remote_peer = node.state.lock().unwrap().table.peer;
                 local_table.add(remote_peer);
             }
-            (node_to_find, ntf_bucket_index)
+            (node_to_find, ntf_bucket_index, closest_nodes)
         };
-
-        let closest_nodes = local_node.find_node(&node_to_find);
 
         // Verifies that nodes returned from *local* find_node query are correct.
         for node in closest_nodes {
@@ -294,5 +295,36 @@ mod tests {
         let remote_messages = remote_nodes[0].messages.lock().unwrap();
         assert_eq!(local_messages[0], remote_messages[0]);
         assert_eq!(local_messages[1], remote_messages[1]);
+    }
+
+    // TODO:
+    #[tokio::test]
+    async fn find_node() {
+        let (mut local_node, mut remote_nodes) = mk_nodes(2).await;
+        let mut local_node_copy = local_node.clone();
+        let mut remote_node_copy = remote_nodes[0].clone();
+
+        let remote_id = {
+            let mut local_table = &mut local_node.state.lock().unwrap().table;
+            let remote_peer = remote_nodes[0].state.lock().unwrap().table.peer;
+            local_table.add(remote_peer);
+            remote_peer.id
+        };
+
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 1024];
+            remote_node_copy.start_server(buffer).await;
+        });
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 1024];
+            local_node_copy.start_server(buffer).await;
+        });
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let session_number = local_node.find_node(&remote_id).await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let local_messages = local_node.messages.lock().unwrap();
+        let remote_messages = remote_nodes[0].messages.lock().unwrap();
     }
 }
