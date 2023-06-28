@@ -67,25 +67,47 @@ impl Node {
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
     /// to some given node ID.  We call this procedure a **node lookup**".
     ///
-    /// How is a node lookup different from the find_node() RPC?
+    /// Q: How is a node lookup different from the find_node() RPC?
     ///
     /// TODO:  1. Set up networking communication for find_node()
     ///        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
-    pub async fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
-        self.state.lock().unwrap().table.get_bucket_for(id).clone()
-    }
-
-    pub async fn ping(&mut self, node_to_ping: Identifier) -> u8 {
-        let session_number: u8 = rand::thread_rng().gen_range(0..=255);
-
+    pub async fn find_node(&mut self, id: Identifier) -> u8 {
         let (local_id, remote_socket) = {
             let table = &self.state.lock().unwrap().table;
-            let remote_record = table.get(&node_to_ping).unwrap();
+            let remote_record = table.get(&id).unwrap();
             (
                 table.peer.id,
                 SocketAddr::new(remote_record.ip_address, remote_record.udp_port),
             )
         };
+        let session_number: u8 = rand::thread_rng().gen_range(0..=255);
+        let message = self.create_message(b"Node", &local_id, session_number);
+
+        self.socket.connect(remote_socket).await;
+        self.state
+            .lock()
+            .unwrap()
+            .outbound_requests
+            .insert(id, session_number);
+
+        self.messages
+            .lock()
+            .unwrap()
+            .push(Message::FindNode(message));
+        self.socket.send(&message).await.unwrap();
+        session_number
+    }
+
+    pub async fn ping(&mut self, id: Identifier) -> u8 {
+        let (local_id, remote_socket) = {
+            let table = &self.state.lock().unwrap().table;
+            let remote_record = table.get(&id).unwrap();
+            (
+                table.peer.id,
+                SocketAddr::new(remote_record.ip_address, remote_record.udp_port),
+            )
+        };
+        let session_number: u8 = rand::thread_rng().gen_range(0..=255);
         let message = self.create_message(b"Ping", &local_id, session_number);
 
         self.socket.connect(remote_socket).await;
@@ -93,7 +115,7 @@ impl Node {
             .lock()
             .unwrap()
             .outbound_requests
-            .insert(node_to_ping, session_number);
+            .insert(id, session_number);
 
         self.messages.lock().unwrap().push(Message::Ping(message));
         self.socket.send(&message).await.unwrap();
@@ -120,6 +142,9 @@ impl Node {
         message
     }
 
+    // TODO: Consolidate logic from ping and find_node here.
+    fn request_message() {}
+
     async fn pong(&self, session_number: u8, addr_to_pong: &SocketAddr) {
         let local_id = {
             let table = &self.state.lock().unwrap().table;
@@ -137,12 +162,15 @@ impl Node {
             // Converts received socket bytes to message type.
             match &buffer[0..4] {
                 b"Ping" => {
+                    println!("Ping");
                     self.process(Message::Ping(buffer), &sender_addr).await;
                 }
                 b"Pong" => {
+                    println!("Pong");
                     self.process(Message::Pong(buffer), &sender_addr).await;
                 }
                 b"Node" => {
+                    println!("Find Node");
                     self.process(Message::FindNode(buffer), &sender_addr).await;
                 }
                 _ => {
@@ -265,6 +293,7 @@ mod tests {
         }
     }
 
+    // TODO: Compress networking testing logic
     #[tokio::test]
     async fn ping() {
         let (mut local_node, mut remote_nodes) = mk_nodes(2).await;
@@ -297,7 +326,7 @@ mod tests {
         assert_eq!(local_messages[1], remote_messages[1]);
     }
 
-    // TODO:
+    // TODO: Compress networking testing logic
     #[tokio::test]
     async fn find_node() {
         let (mut local_node, mut remote_nodes) = mk_nodes(2).await;
@@ -312,16 +341,18 @@ mod tests {
         };
 
         tokio::spawn(async move {
+            println!("Starting remote server");
             let mut buffer = [0u8; 1024];
             remote_node_copy.start_server(buffer).await;
         });
         tokio::spawn(async move {
+            println!("Starting local server");
             let mut buffer = [0u8; 1024];
             local_node_copy.start_server(buffer).await;
         });
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let session_number = local_node.find_node(&remote_id).await;
+        let session_number = local_node.find_node(remote_id).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
         let local_messages = local_node.messages.lock().unwrap();
