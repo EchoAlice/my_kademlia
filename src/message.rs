@@ -1,18 +1,35 @@
 use crate::helper::Identifier;
+use crate::kbucket::TableRecord;
+use std::collections::HashMap;
 
+// TODO: Convert message logic to injest hex representation of message types
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
-    Ping([u8; 1024]),
-    Pong([u8; 1024]),
-    FindNode([u8; 1024]),
-    // FoundNode,
+    Ping([u8; 1024]),     // b"01"
+    Pong([u8; 1024]),     // b"02"
+    FindNode([u8; 1024]), // b"03"
 }
 
-pub fn create_message(mtype: &[u8; 4], local_id: &Identifier, session_number: u8) -> [u8; 1024] {
+// TODO:  Convert message type logic
+// TODO:  Convert hashmap (k,v)'s to bytes?
+pub fn create_message(
+    mtype: &[u8; 2],
+    local_id: &Identifier,
+    session_number: &u8,
+    peers: Option<&HashMap<[u8; 32], TableRecord>>,
+) -> [u8; 1024] {
     let mut message = [0u8; 1024];
-    message[0..4].copy_from_slice(mtype);
-    message[4] = session_number;
-    message[5..37].copy_from_slice(local_id);
+    message[0..2].copy_from_slice(mtype);
+    message[2] = *session_number;
+    message[3..35].copy_from_slice(local_id);
+
+    if &message[0..2] == b"03" {
+        if let Some(peers) = peers {
+            println!("Peers to place in message: {:?}", peers);
+            // TODO:  Place peers in message.
+        }
+    }
+
     message
 }
 

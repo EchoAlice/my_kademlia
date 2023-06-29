@@ -54,15 +54,11 @@ impl Node {
         }
     }
 
+    // TODO: node_lookup() {}
+
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
-
-    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
-    /// to some given node ID.  We call this procedure a **node lookup**".
-    ///
-    /// TODO:  1. Set up networking communication for find_node()
-    ///        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
-    pub async fn find_node(&mut self, id: Identifier) -> u8 {
+    pub async fn ping(&mut self, id: Identifier) -> u8 {
         let (local_id, remote_socket) = {
             let table = &self.state.lock().unwrap().table;
             let remote_record = table.get(&id).unwrap();
@@ -72,9 +68,41 @@ impl Node {
             )
         };
         let session_number: u8 = rand::thread_rng().gen_range(0..=255);
-        let message = create_message(b"Node", &local_id, session_number);
+        let message = create_message(b"01", &local_id, &session_number, None);
 
-        // TODO: Add nodes to message
+        self.socket.connect(remote_socket).await;
+        self.state
+            .lock()
+            .unwrap()
+            .outbound_requests
+            .insert(id, session_number);
+
+        self.messages.lock().unwrap().push(Message::Ping(message));
+        self.socket.send(&message).await.unwrap();
+        session_number
+    }
+
+    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
+    /// to some given node ID.  We call this procedure a **node lookup**".
+    ///
+    /// TODO:  1. Set up networking communication for find_node() **with non-empty bucket**.
+    ///        2. Create complete routing table logic (return K closest nodes instead of indexed bucket)
+    pub async fn find_node(&mut self, id: Identifier) -> u8 {
+        let session_number: u8 = rand::thread_rng().gen_range(0..=255);
+        let (local_id, remote_socket, message) = {
+            let table = &self.state.lock().unwrap().table;
+            let remote_record = table.get(&id).unwrap();
+            let peers = table.get_bucket_for(&id);
+            // TODO: let peers = table.get_closest_nodes(&id);
+            // TODO: if let Some(peers) = table.get_bucket_for(&id) {} else { panic!("Node doesn't have any peers!") };
+
+            let message = create_message(b"03", &table.peer.id, &session_number, Some(peers));
+            (
+                table.peer.id,
+                SocketAddr::new(remote_record.ip_address, remote_record.udp_port),
+                message,
+            )
+        };
 
         self.socket.connect(remote_socket).await;
         self.state
@@ -87,30 +115,6 @@ impl Node {
             .lock()
             .unwrap()
             .push(Message::FindNode(message));
-        self.socket.send(&message).await.unwrap();
-        session_number
-    }
-
-    pub async fn ping(&mut self, id: Identifier) -> u8 {
-        let (local_id, remote_socket) = {
-            let table = &self.state.lock().unwrap().table;
-            let remote_record = table.get(&id).unwrap();
-            (
-                table.peer.id,
-                SocketAddr::new(remote_record.ip_address, remote_record.udp_port),
-            )
-        };
-        let session_number: u8 = rand::thread_rng().gen_range(0..=255);
-        let message = create_message(b"Ping", &local_id, session_number);
-
-        self.socket.connect(remote_socket).await;
-        self.state
-            .lock()
-            .unwrap()
-            .outbound_requests
-            .insert(id, session_number);
-
-        self.messages.lock().unwrap().push(Message::Ping(message));
         self.socket.send(&message).await.unwrap();
         session_number
     }
@@ -128,7 +132,7 @@ impl Node {
             let table = &self.state.lock().unwrap().table;
             table.peer.id
         };
-        let message = create_message(b"Pong", &local_id, session_number);
+        let message = create_message(b"02", &local_id, &session_number, None);
         self.messages.lock().unwrap().push(Message::Pong(message));
         self.socket.send_to(&message, addr_to_pong).await;
     }
@@ -138,17 +142,14 @@ impl Node {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
 
             // Converts received socket bytes to message type.
-            match &buffer[0..4] {
-                b"Ping" => {
-                    println!("Ping");
+            match &buffer[0..2] {
+                b"01" => {
                     self.process(Message::Ping(buffer), &sender_addr).await;
                 }
-                b"Pong" => {
-                    println!("Pong");
+                b"02" => {
                     self.process(Message::Pong(buffer), &sender_addr).await;
                 }
-                b"Node" => {
-                    println!("Find Node");
+                b"03" => {
                     self.process(Message::FindNode(buffer), &sender_addr).await;
                 }
                 _ => {
@@ -163,17 +164,17 @@ impl Node {
             Message::Ping(datagram) => {
                 self.messages.lock().unwrap().push(message);
 
-                let session_number = datagram[4];
-                let node_id = &datagram[5..37];
+                let session_number = datagram[2];
+                let node_id = &datagram[3..35];
                 self.pong(session_number, sender_addr).await;
             }
             Message::Pong(datagram) => {
                 let mut outbound_requests = &mut self.state.lock().unwrap().outbound_requests;
                 let mut messages = self.messages.lock().unwrap();
-                let node_id = &datagram[5..37];
+                let node_id = &datagram[3..35];
 
                 if let Some(session_number) = outbound_requests.get(node_id) {
-                    if session_number == &datagram[4] {
+                    if session_number == &datagram[2] {
                         println!("Successful ping. Removing k,v");
                         messages.push(message);
                         outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
@@ -187,7 +188,7 @@ impl Node {
             Message::FindNode(datagram) => {
                 println!("FindNode datagram: {:?}", datagram)
             }
-            _ => println!("Message was not ping, nor pong"),
+            _ => println!("Message was not ping, pong, or FindNode"),
         }
     }
 }
@@ -330,6 +331,7 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_secs(1)).await;
+
         let session_number = local_node.find_node(remote_id).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
