@@ -2,7 +2,6 @@ use crate::helper::Identifier;
 use crate::kbucket::TableRecord;
 use std::collections::HashMap;
 
-// TODO: Convert message logic to injest hex representation of message types
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
     Ping([u8; 1024]),     // b"01"
@@ -10,7 +9,6 @@ pub enum Message {
     FindNode([u8; 1024]), // b"03"
 }
 
-// TODO:  Convert message type logic
 // TODO:  Convert hashmap (k,v)'s to bytes?
 pub fn create_message(
     mtype: &[u8; 2],
@@ -25,8 +23,7 @@ pub fn create_message(
 
     if &message[0..2] == b"03" {
         if let Some(peers) = peers {
-            println!("Peers to place in message: {:?}", peers);
-            // TODO:  Place peers in message.
+            println!("TODO: Place peers in message: {:?}", peers);
         }
     }
 
