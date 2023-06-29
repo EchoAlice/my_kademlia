@@ -1,5 +1,6 @@
 use crate::helper::{Identifier, PING_MESSAGE_SIZE};
 use crate::kbucket::{Bucket, KbucketTable, TableRecord};
+use crate::message::{create_message, Message};
 use crate::node;
 use rand::Rng;
 use std::collections::HashMap;
@@ -10,14 +11,6 @@ use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
 const NODES_TO_QUERY: usize = 1; // "a"
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Message {
-    Ping([u8; 1024]),
-    Pong([u8; 1024]),
-    FindNode([u8; 1024]),
-    // FoundNode,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
@@ -67,8 +60,6 @@ impl Node {
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
     /// to some given node ID.  We call this procedure a **node lookup**".
     ///
-    /// Q: How is a node lookup different from the find_node() RPC?
-    ///
     /// TODO:  1. Set up networking communication for find_node()
     ///        2. Create complete routing table logic (return K closest nodes instead of closest bucket)
     pub async fn find_node(&mut self, id: Identifier) -> u8 {
@@ -81,7 +72,9 @@ impl Node {
             )
         };
         let session_number: u8 = rand::thread_rng().gen_range(0..=255);
-        let message = self.create_message(b"Node", &local_id, session_number);
+        let message = create_message(b"Node", &local_id, session_number);
+
+        // TODO: Add nodes to message
 
         self.socket.connect(remote_socket).await;
         self.state
@@ -108,7 +101,7 @@ impl Node {
             )
         };
         let session_number: u8 = rand::thread_rng().gen_range(0..=255);
-        let message = self.create_message(b"Ping", &local_id, session_number);
+        let message = create_message(b"Ping", &local_id, session_number);
 
         self.socket.connect(remote_socket).await;
         self.state
@@ -129,28 +122,13 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
-    fn create_message(
-        &self,
-        mtype: &[u8; 4],
-        local_id: &Identifier,
-        session_number: u8,
-    ) -> [u8; 1024] {
-        let mut message = [0u8; 1024];
-        message[0..4].copy_from_slice(mtype);
-        message[4] = session_number;
-        message[5..37].copy_from_slice(local_id);
-        message
-    }
-
-    // TODO: Consolidate logic from ping and find_node here.
-    fn request_message() {}
 
     async fn pong(&self, session_number: u8, addr_to_pong: &SocketAddr) {
         let local_id = {
             let table = &self.state.lock().unwrap().table;
             table.peer.id
         };
-        let message = self.create_message(b"Pong", &local_id, session_number);
+        let message = create_message(b"Pong", &local_id, session_number);
         self.messages.lock().unwrap().push(Message::Pong(message));
         self.socket.send_to(&message, addr_to_pong).await;
     }
