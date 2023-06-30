@@ -2,6 +2,7 @@
 
 pub mod helper;
 pub mod kbucket;
+pub mod message;
 pub mod node;
 
 // Expose for our Kademlia client RPCs here:

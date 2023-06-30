@@ -2,6 +2,7 @@ use crate::helper::{Identifier, PING_MESSAGE_SIZE};
 use crate::kbucket::{Bucket, KbucketTable, TableRecord};
 use crate::message::{create_message, Message};
 use crate::node;
+use core::panic;
 use rand::Rng;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, SocketAddrV4};

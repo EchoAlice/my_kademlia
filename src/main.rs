@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 
 pub mod helper;
 pub mod kbucket;
+pub mod message;
 pub mod node;
 
 fn main() {
