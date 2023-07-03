@@ -63,31 +63,12 @@ impl Node {
 
     // Protocol's RPCs:
     // ---------------------------------------------------------------------------------------------------
-    pub async fn ping(&mut self, id: Identifier) -> u8 {
-        let (local_id, remote_socket) = {
-            let table = &self.state.lock().unwrap().table;
-            let remote_record = table.get(&id).unwrap();
-            (
-                table.peer.id,
-                SocketAddr::new(remote_record.ip_address, remote_record.udp_port),
-            )
+    pub async fn ping(&mut self, id: Identifier, target: &Peer) -> u8 {
+        let msg = Message {
+            session: rand::thread_rng().gen_range(0..=255),
+            body: MessageBody::Ping(self.id),
         };
-        let session_number: u8 = rand::thread_rng().gen_range(0..=255);
-        // let msg = create_message(b"01", &local_id, &session_number, None);
-
-        // self.send_message(&msg, target).await.
-
-        // TODO: Place logic into self.send_message()
-        // self.socket.connect(remote_socket).await;
-        // self.state
-        //     .lock()
-        //     .unwrap()
-        //     .outbound_requests
-        //     .insert(id, session_number);
-
-        // self.messages.lock().unwrap().push(msg);
-        // self.socket.send(&msg).await.unwrap();
-        session_number
+        self.send_message(&msg, target).await
     }
 
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
@@ -98,7 +79,7 @@ impl Node {
     pub async fn find_node(&mut self, id: &Identifier, target: &Peer) -> u8 {
         let msg = Message {
             session: rand::thread_rng().gen_range(0..=255),
-            body: MessageBody::FindNode(*id),
+            body: MessageBody::FindNode([self.id, *id]),
         };
         self.send_message(&msg, target).await
     }
@@ -128,33 +109,43 @@ impl Node {
         msg.session
     }
 
-    async fn pong(&self, session_number: u8, addr_to_pong: &SocketAddr) {
-        let local_id = {
-            let table = &self.state.lock().unwrap().table;
-            table.peer.id
+    async fn pong(&self, session: u8, target: &Peer) -> u8 {
+        let msg = Message {
+            session,
+            body: MessageBody::Pong(self.id),
         };
-        let message = create_message(b"02", &local_id, &session_number, None);
-        self.messages
-            .lock()
-            .unwrap()
-            .push(MessageBody::Pong(message));
-        self.socket.send_to(&message, addr_to_pong).await;
+        self.send_message(&msg, target).await
     }
 
     pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
         loop {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
+            let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
 
-            // Converts received socket bytes to message type.
             match &buffer[0..2] {
                 b"01" => {
-                    self.process(Message::Ping(buffer), &sender_addr).await;
+                    let message = Message {
+                        session: buffer[2],
+                        body: MessageBody::Ping(requester_id),
+                    };
+                    self.process(message, &sender_addr).await;
                 }
                 b"02" => {
-                    self.process(Message::Pong(buffer), &sender_addr).await;
+                    let message = Message {
+                        session: buffer[2],
+                        body: MessageBody::Pong(requester_id),
+                    };
+                    self.process(message, &sender_addr).await;
                 }
                 b"03" => {
-                    self.process(Message::FindNode(buffer), &sender_addr).await;
+                    let message = Message {
+                        session: buffer[2],
+                        body: MessageBody::FindNode([
+                            requester_id,
+                            buffer[35..67].try_into().expect("Invalid slice length"),
+                        ]),
+                    };
+                    self.process(message, &sender_addr).await;
                 }
                 _ => {
                     println!("Message wasn't legitimate");
@@ -170,6 +161,7 @@ impl Node {
 
                 let session_number = datagram[2];
                 let node_id = &datagram[3..35];
+
                 self.pong(session_number, sender_addr).await;
             }
             MessageBody::Pong(datagram) => {
