@@ -157,12 +157,18 @@ impl Node {
     async fn process(&mut self, message: Message, sender_addr: &SocketAddr) {
         match message.body {
             MessageBody::Ping(datagram) => {
+                let session = message.session;
                 self.messages.lock().unwrap().push(message);
 
-                let session_number = datagram[2];
-                let node_id = &datagram[3..35];
+                let requester = Peer {
+                    id: datagram[3..35].try_into().expect("Invalid slice length"),
+                    record: TableRecord {
+                        ip_address: (sender_addr.ip()),
+                        udp_port: (sender_addr.port()),
+                    },
+                };
 
-                self.pong(session_number, sender_addr).await;
+                self.pong(session, &requester).await;
             }
             MessageBody::Pong(datagram) => {
                 let mut outbound_requests = &mut self.state.lock().unwrap().outbound_requests;
@@ -392,7 +398,7 @@ mod tests {
         tokio::spawn(async move {
             println!("Starting remote server");
             let mut buffer = [0u8; 1024];
-            local_copy.start_server(buffer).await;
+            remote_copy.start_server(buffer).await;
         });
 
         // assert!(local.find_node(id).await, &vec![id]);
