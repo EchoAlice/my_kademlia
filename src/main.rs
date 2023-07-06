@@ -21,3 +21,28 @@ fn main() {
     ///
     println!("Let's build this thing");
 }
+
+/*
+
+impl Node {
+    fn ping(id: Identifier) -> Future<bool>;
+    fn find_nodes(id: Identifier) -> Future<&[Peer]>;
+    fn get_value(key: Key) -> Future<Value>;
+}
+
+fn main() {
+
+    ... get the args -> ping to id
+
+    let mut node = node::new();
+
+    node.start(local_ip, port, local_id); // tokio
+
+    if node.ping(id).await {
+        println!("node responded!");
+    } else {
+        println!("node didn't respond :(")
+    }
+}
+
+ */

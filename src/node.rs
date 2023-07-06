@@ -7,10 +7,17 @@ use core::panic;
 use rand::Rng;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, SocketAddrV4};
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use tokio::io;
 use tokio::net::UdpSocket;
+use tokio::sync::mpsc;
+use tokio::sync::{oneshot, oneshot::error::RecvError};
 use tokio::time::Duration;
+
+// type Channel<T> = Arc<Mutex<oneshot::Sender<T>>>;
+// type Channel<T> = Arc<mpsc::Sender<T>>;
+type Channel<T> = Arc<oneshot::Sender<T>>;
 
 const NODES_TO_QUERY: usize = 1; // "a"
 
@@ -23,7 +30,7 @@ pub struct Peer {
 #[derive(Clone, Debug)]
 pub struct State {
     pub table: KbucketTable,
-    pub outbound_requests: HashMap<Identifier, u8>,
+    pub outbound_requests: HashMap<Identifier, (Message, Channel<bool>)>,
 }
 
 // The main Kademlia client struct.
@@ -33,7 +40,7 @@ pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
     pub socket: Arc<UdpSocket>,
-    pub messages: Arc<Mutex<Vec<Message>>>,
+    pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
 }
 
@@ -61,14 +68,29 @@ impl Node {
 
     // TODO: node_lookup(self, id) -> peer {}
 
-    // Protocol's RPCs:
+    // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
-    pub async fn ping(&mut self, id: Identifier, target: &Peer) -> u8 {
+    // TODO: Return result
+    pub async fn ping(&mut self, id: Identifier) -> bool {
+        let table = &self.state.lock().unwrap().table;
+        let target = table.get(&id);
+        if target.is_none() {
+            return false;
+        }
+        let record = *target.unwrap();
+        let peer = Peer { id, record };
+
         let msg = Message {
             session: rand::thread_rng().gen_range(0..=255),
             body: MessageBody::Ping(self.id),
         };
-        self.send_message(&msg, target).await
+
+        let rx = self.send_message(msg, &peer).await;
+        let result = rx.await.unwrap();
+
+        unimplemented!()
+
+        // TODO: Have message verification logic embedded within this function.  Return bool for successful reply
     }
 
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
@@ -81,7 +103,9 @@ impl Node {
             session: rand::thread_rng().gen_range(0..=255),
             body: MessageBody::FindNode([self.id, *id]),
         };
-        self.send_message(&msg, target).await
+        self.send_message(msg, target).await;
+
+        unimplemented!()
     }
 
     // TODO:
@@ -91,33 +115,41 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
-    async fn send_message(&self, msg: &Message, target: &Peer) -> u8 {
-        let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
-        self.socket.connect(dest).await;
-
-        // TODO: One pending message per target (for now)
-        self.state
-            .lock()
-            .unwrap()
-            .outbound_requests
-            .insert(target.id, msg.session);
-
-        self.messages.lock().unwrap().push(msg.clone());
-        let message_bytes = msg.to_bytes();
-
-        self.socket.send(&message_bytes).await.unwrap();
-        msg.session
-    }
-
     async fn pong(&self, session: u8, target: &Peer) -> u8 {
         let msg = Message {
             session,
             body: MessageBody::Pong(self.id),
         };
-        self.send_message(&msg, target).await
+        self.send_message(msg, target).await;
+
+        unimplemented!()
+    }
+
+    async fn send_message(&self, msg: Message, target: &Peer) -> oneshot::Receiver<bool> {
+        let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
+        self.socket.connect(dest).await;
+
+        let (tx, rx) = oneshot::channel();
+        let mutex_tx = Arc::new(tx);
+
+        // TODO: Implement multiple pending messages per target
+        self.state
+            .lock()
+            .unwrap()
+            .outbound_requests
+            .insert(target.id, (msg.clone(), mutex_tx));
+
+        self.messages.lock().unwrap().push(msg.clone());
+        let message_bytes = msg.to_bytes();
+
+        self.socket.send(&message_bytes).await.unwrap();
+        rx
+
+        // TODO: return recieve side
     }
 
     pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
+        // TODO: MAYBE create mpsc channel
         loop {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
             let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
@@ -175,17 +207,27 @@ impl Node {
                 let mut messages = self.messages.lock().unwrap();
                 let node_id = &datagram[3..35];
 
-                if let Some(session_number) = outbound_requests.get(node_id) {
-                    if session_number == &datagram[2] {
-                        println!("Successful ping. Removing k,v");
-                        messages.push(message);
-                        outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
-                    } else {
-                        println!("Unsuccessful ping");
-                    }
-                } else {
-                    println!("No session number for remote node");
+                let target = outbound_requests.get(node_id);
+                if target.is_none() {
+                    println!("No outbound requests for node");
                 }
+                let (msg, tx) = target.unwrap();
+
+                //TODO: Figure out how to send a message within here.
+                let result = tx.send(true).unwrap();
+
+                /*
+                // We want to check that a message's outbound request type equals the message type being sent.  Does this already happen naturally?
+                if &datagram[0..1] == b"02" && &msg.session == &datagram[2] {
+                    println!("Successful ping. Removing k,v");
+                    messages.push(message);
+
+                    // TODO: Send message.  Do i need to create a task?  Figure out how to share this channel
+                    tx.send(true);
+
+                    // outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
+                } else {}
+                */
             }
             MessageBody::FindNode(datagram) => {
                 println!("FindNode datagram: {:?}", datagram)
@@ -224,7 +266,6 @@ mod tests {
         let udp_port = port_start + index as u16;
 
         let record = TableRecord {
-            // ip_address: *ip_address,
             ip_address,
             udp_port,
         };
@@ -246,38 +287,9 @@ mod tests {
         assert!(result);
         assert!(!result2);
     }
-    /*
-        // TODO: Figure out where to place messaging logic
-        #[tokio::test]
-        async fn get_bucket_for() {
-            let (local_node, remote_nodes) = mk_nodes(10).await;
+    // #[tokio::test]
+    // async fn get_bucket_for() {}
 
-            // Populates local table and gather necessary data from inner scope
-            let (node_to_find, ntf_bucket_index, closest_nodes) = {
-                let mut local_table = &mut local_node.state.lock().unwrap().table;
-                let node_to_find = remote_nodes[1].node_id;
-                let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
-                let closest_nodes = local_table.get_bucket_for(&node_to_find).clone();
-
-                for node in &remote_nodes {
-                    let remote_peer = node.state.lock().unwrap().table.peer;
-                    local_table.add(remote_peer);
-                }
-                (node_to_find, ntf_bucket_index, closest_nodes)
-            };
-
-            // Verifies that nodes returned from *local* find_node query are correct.
-            for node in closest_nodes {
-                let bucket_index = local_node
-                    .state
-                    .lock()
-                    .unwrap()
-                    .table
-                    .xor_bucket_index(&node.0);
-                assert_eq!(ntf_bucket_index, bucket_index);
-            }
-        }
-    */
     // TODO: Compress networking testing logic
     #[tokio::test]
     async fn ping() {
@@ -329,7 +341,8 @@ mod tests {
             remote_copy.start_server(buffer).await;
         });
 
-        // assert!(local.ping(remote.local_record.id).await, true);
+        let result = local.ping(remote.id).await;
+        assert!(result)
         // local.start_server(buffer)
     }
 
