@@ -15,9 +15,8 @@ use tokio::sync::mpsc;
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 use tokio::time::Duration;
 
-// type Channel<T> = Arc<Mutex<oneshot::Sender<T>>>;
-// type Channel<T> = Arc<mpsc::Sender<T>>;
-type Channel<T> = Arc<oneshot::Sender<T>>;
+type Channel<T> = Arc<mpsc::Sender<T>>;
+// type Channel<T> = Arc<oneshot::Sender<T>>;
 
 const NODES_TO_QUERY: usize = 1; // "a"
 
@@ -70,27 +69,24 @@ impl Node {
 
     // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
-    // TODO: Return result
     pub async fn ping(&mut self, id: Identifier) -> bool {
-        let table = &self.state.lock().unwrap().table;
-        let target = table.get(&id);
-        if target.is_none() {
-            return false;
-        }
-        let record = *target.unwrap();
-        let peer = Peer { id, record };
+        let peer = {
+            let table = &self.state.lock().unwrap().table;
+            let target = table.get(&id);
+            if target.is_none() {
+                return false;
+            }
+            let record = *target.unwrap();
+            Peer { id, record }
+        };
 
         let msg = Message {
             session: rand::thread_rng().gen_range(0..=255),
             body: MessageBody::Ping(self.id),
         };
 
-        let rx = self.send_message(msg, &peer).await;
-        let result = rx.await.unwrap();
-
-        unimplemented!()
-
-        // TODO: Have message verification logic embedded within this function.  Return bool for successful reply
+        let rx = &mut self.send_message(msg, &peer).await;
+        rx.recv().await.unwrap()
     }
 
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
@@ -115,21 +111,20 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
-    async fn pong(&self, session: u8, target: &Peer) -> u8 {
+    // TODO: Should pong return something?
+    async fn pong(&self, session: u8, target: &Peer) {
         let msg = Message {
             session,
             body: MessageBody::Pong(self.id),
         };
         self.send_message(msg, target).await;
-
-        unimplemented!()
     }
 
-    async fn send_message(&self, msg: Message, target: &Peer) -> oneshot::Receiver<bool> {
+    async fn send_message(&self, msg: Message, target: &Peer) -> mpsc::Receiver<bool> {
         let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
         self.socket.connect(dest).await;
 
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = mpsc::channel(32);
         let mutex_tx = Arc::new(tx);
 
         // TODO: Implement multiple pending messages per target
@@ -144,12 +139,9 @@ impl Node {
 
         self.socket.send(&message_bytes).await.unwrap();
         rx
-
-        // TODO: return recieve side
     }
 
     pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
-        // TODO: MAYBE create mpsc channel
         loop {
             let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
             let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
@@ -180,7 +172,7 @@ impl Node {
                     self.process(message, &sender_addr).await;
                 }
                 _ => {
-                    println!("Message wasn't legitimate");
+                    panic!("Message wasn't legitimate");
                 }
             }
         }
@@ -191,43 +183,43 @@ impl Node {
             MessageBody::Ping(datagram) => {
                 let session = message.session;
                 self.messages.lock().unwrap().push(message);
-
                 let requester = Peer {
-                    id: datagram[3..35].try_into().expect("Invalid slice length"),
+                    id: datagram[0..32].try_into().expect("Invalid slice length"),
                     record: TableRecord {
                         ip_address: (sender_addr.ip()),
                         udp_port: (sender_addr.port()),
                     },
                 };
-
+                println!("send pong");
                 self.pong(session, &requester).await;
             }
             MessageBody::Pong(datagram) => {
-                let mut outbound_requests = &mut self.state.lock().unwrap().outbound_requests;
-                let mut messages = self.messages.lock().unwrap();
-                let node_id = &datagram[3..35];
+                let node_id = &datagram[0..32];
 
-                let target = outbound_requests.get(node_id);
-                if target.is_none() {
-                    println!("No outbound requests for node");
-                }
-                let (msg, tx) = target.unwrap();
+                let (local_msg, tx) = {
+                    let state = self.state.lock().unwrap();
+                    let target = state.outbound_requests.get(node_id);
 
-                //TODO: Figure out how to send a message within here.
-                let result = tx.send(true).unwrap();
+                    if target.is_none() {
+                        println!("No outbound requests for node");
+                    }
 
-                /*
-                // We want to check that a message's outbound request type equals the message type being sent.  Does this already happen naturally?
-                if &datagram[0..1] == b"02" && &msg.session == &datagram[2] {
+                    let (msg, tx) = target.unwrap();
+                    (msg.clone(), tx.clone())
+                };
+
+                // Verifyies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
+                if &local_msg.session == &message.session {
                     println!("Successful ping. Removing k,v");
-                    messages.push(message);
+                    tx.send(true).await;
 
-                    // TODO: Send message.  Do i need to create a task?  Figure out how to share this channel
-                    tx.send(true);
+                    let state = &mut self.state.lock().unwrap();
+                    self.messages.lock().unwrap().push(message);
 
-                    // outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
-                } else {}
-                */
+                    state.outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
+                } else {
+                    println!("Local and remote sessions don't match");
+                }
             }
             MessageBody::FindNode(datagram) => {
                 println!("FindNode datagram: {:?}", datagram)
@@ -290,38 +282,8 @@ mod tests {
     // #[tokio::test]
     // async fn get_bucket_for() {}
 
-    // TODO: Compress networking testing logic
     #[tokio::test]
     async fn ping() {
-        // let (mut local_node, mut remote_nodes) = make_nodes(2).await;
-        // let mut local_node_copy = local_node.clone();
-        // let mut remote_node_copy = remote_nodes[0].clone();
-
-        // let remote_id = {
-        //     let mut local_table = &mut local_node.state.lock().unwrap().table;
-        //     let remote_peer = remote_nodes[0].state.lock().unwrap().table.peer;
-        //     local_table.add(remote_peer);
-        //     remote_peer.id
-        // };
-
-        // tokio::spawn(async move {
-        //     let mut buffer = [0u8; 1024];
-        //     remote_node_copy.start_server(buffer).await;
-        // });
-        // tokio::spawn(async move {
-        //     let mut buffer = [0u8; 1024];
-        //     local_node_copy.start_server(buffer).await;
-        // });
-
-        // tokio::time::sleep(Duration::from_secs(1)).await;
-        // let session_number = local_node.ping(remote_id).await;
-
-        // tokio::time::sleep(Duration::from_secs(1)).await;
-        // let local_messages = local_node.messages.lock().unwrap();
-        // let remote_messages = remote_nodes[0].messages.lock().unwrap();
-        // assert_eq!(local_messages[0], remote_messages[0]);
-        // assert_eq!(local_messages[1], remote_messages[1]);
-
         let mut local = make_node(0).await;
         let mut local_copy = local.clone();
         let mut remote = make_node(1).await;
@@ -329,61 +291,28 @@ mod tests {
 
         // add remote peer to local node
         local.state.lock().unwrap().table.add(remote.local_record);
+        println!("Peer's been added");
 
         // start local node
         tokio::spawn(async move {
+            println!("Start local server");
             let mut buffer = [0u8; 1024];
             local_copy.start_server(buffer).await;
         });
         // start remote
         tokio::spawn(async move {
+            println!("Start remote server");
             let mut buffer = [0u8; 1024];
             remote_copy.start_server(buffer).await;
         });
 
+        tokio::time::sleep(Duration::from_secs(1)).await;
         let result = local.ping(remote.id).await;
         assert!(result)
-        // local.start_server(buffer)
     }
 
-    // TODO: Compress networking testing logic
     #[tokio::test]
     async fn find_node() {
-        // let (mut local_node, mut remote_nodes) = make_nodes(4).await;
-        // // let requesting_peer = remote_nodes[0];
-        // let mut local_node_copy = local_node.clone();
-        // let mut remote_node_copy = remote_nodes[0].clone();
-
-        // let requesting_peer = {
-        //     let mut local_table = &mut local_node.state.lock().unwrap().table;
-        //     let requesting_peer = remote_nodes[0].state.lock().unwrap().table.peer;
-        //     let table_peer = remote_nodes[1].state.lock().unwrap().table.peer;
-        //     local_table.add(table);
-
-        //     requesting_peer
-        // };
-
-        // tokio::spawn(async move {
-        //     println!("Starting remote server");
-        //     let mut buffer = [0u8; 1024];
-        //     remote_node_copy.start_server(buffer).await;
-        // });
-        // tokio::spawn(async move {
-        //     println!("Starting local server");
-        //     let mut buffer = [0u8; 1024];
-        //     local_node_copy.start_server(buffer).await;
-        // });
-
-        // tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // // Resolve errors.  Fix test.
-        // let asks_for = remote_nodes[2];
-        // let session_number = local_node.find_node(remote_id).await;
-
-        // tokio::time::sleep(Duration::from_secs(1)).await;
-        // let local_messages = local_node.messages.lock().unwrap();
-        // let remote_messages = remote_nodes[0].messages.lock().unwrap();
-
         // TODO:  try to make_node() not await
         let mut local = make_node(0).await;
         let mut local_copy = local.clone();
