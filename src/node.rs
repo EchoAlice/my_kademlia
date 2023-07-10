@@ -38,7 +38,6 @@ pub struct State {
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
-    pub socket: Arc<UdpSocket>,
     pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
 }
@@ -48,15 +47,6 @@ impl Node {
         Self {
             id: local_record.id,
             local_record,
-            // TODO: Bind socket when you start server
-            socket: Arc::new(
-                UdpSocket::bind(SocketAddr::new(
-                    local_record.record.ip_address,
-                    local_record.record.udp_port,
-                ))
-                .await
-                .unwrap(),
-            ),
             messages: Default::default(),
             state: Arc::new(Mutex::new(State {
                 table: (KbucketTable::new(local_record)),
@@ -111,6 +101,10 @@ impl Node {
     // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
+
+    // Starts server!
+    pub async fn start() {}
+
     // TODO: Should pong return something?
     async fn pong(&self, session: u8, target: &Peer) {
         let msg = Message {
@@ -120,12 +114,16 @@ impl Node {
         self.send_message(msg, target).await;
     }
 
+    // TODO: Figure out how to route messages
     async fn send_message(&self, msg: Message, target: &Peer) -> mpsc::Receiver<bool> {
+        // Should I *start* the socket here?
         let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
-        self.socket.connect(dest).await;
 
+        // Arc?
         let (tx, rx) = mpsc::channel(32);
         let mutex_tx = Arc::new(tx);
+
+        // TODO: Create channel to communicate with "server"
 
         // TODO: Implement multiple pending messages per target
         self.state
@@ -141,9 +139,18 @@ impl Node {
         rx
     }
 
+    // TODO: Bind UDPSocket here.  Call send_message() from within the server
     pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
+        // TODO: Get info in here!
+        let socket = UdpSocket::bind(SocketAddr::new(
+            local_record.record.ip_address,
+            local_record.record.udp_port,
+        ))
+        .await
+        .unwrap();
+
         loop {
-            let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
+            let Ok((size, sender_addr)) = socket.recv_from(&mut buffer).await else { todo!() };
             let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
 
             match &buffer[0..2] {
@@ -209,7 +216,7 @@ impl Node {
                 };
 
                 // Verifyies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
-                if &local_msg.session == &message.session {
+                if local_msg.session == message.session {
                     println!("Successful ping. Removing k,v");
                     tx.send(true).await;
 
@@ -218,6 +225,7 @@ impl Node {
 
                     state.outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
                 } else {
+                    tx.send(false).await;
                     println!("Local and remote sessions don't match");
                 }
             }
@@ -279,8 +287,6 @@ mod tests {
         assert!(result);
         assert!(!result2);
     }
-    // #[tokio::test]
-    // async fn get_bucket_for() {}
 
     #[tokio::test]
     async fn ping() {
@@ -291,24 +297,25 @@ mod tests {
 
         // add remote peer to local node
         local.state.lock().unwrap().table.add(remote.local_record);
-        println!("Peer's been added");
 
         // start local node
         tokio::spawn(async move {
-            println!("Start local server");
             let mut buffer = [0u8; 1024];
             local_copy.start_server(buffer).await;
         });
         // start remote
         tokio::spawn(async move {
-            println!("Start remote server");
             let mut buffer = [0u8; 1024];
             remote_copy.start_server(buffer).await;
         });
 
         tokio::time::sleep(Duration::from_secs(1)).await;
         let result = local.ping(remote.id).await;
-        assert!(result)
+        assert!(result);
+
+        let mut dummy = make_node(2).await;
+        let result = local.ping(dummy.id).await;
+        assert!(!result)
     }
 
     #[tokio::test]
@@ -332,13 +339,11 @@ mod tests {
 
         // start local node
         tokio::spawn(async move {
-            println!("Starting local server");
             let mut buffer = [0u8; 1024];
             local_copy.start_server(buffer).await;
         });
         // start remote
         tokio::spawn(async move {
-            println!("Starting remote server");
             let mut buffer = [0u8; 1024];
             remote_copy.start_server(buffer).await;
         });

@@ -9,6 +9,7 @@ pub mod helper;
 pub mod kbucket;
 pub mod message;
 pub mod node;
+pub mod service;
 
 fn main() {
     /// Bootstrapping protocol -

@@ -4,6 +4,7 @@ pub mod helper;
 pub mod kbucket;
 pub mod message;
 pub mod node;
+pub mod service;
 
 // Expose for our Kademlia client RPCs here:
 // TODO:
