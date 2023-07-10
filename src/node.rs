@@ -38,6 +38,7 @@ pub struct State {
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
+    pub socket: Arc<UdpSocket>,
     pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
 }
@@ -48,6 +49,14 @@ impl Node {
             id: local_record.id,
             local_record,
             messages: Default::default(),
+            socket: Arc::new(
+                UdpSocket::bind(SocketAddr::new(
+                    local_record.record.ip_address,
+                    local_record.record.udp_port,
+                ))
+                .await
+                .unwrap(),
+            ),
             state: Arc::new(Mutex::new(State {
                 table: (KbucketTable::new(local_record)),
                 outbound_requests: (Default::default()),
@@ -103,7 +112,11 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
 
     // Starts server!
-    pub async fn start() {}
+    pub async fn start() {
+        // Service::spawn
+
+        // TODO: Create channel to communicate with "server"
+    }
 
     // TODO: Should pong return something?
     async fn pong(&self, session: u8, target: &Peer) {
@@ -116,14 +129,10 @@ impl Node {
 
     // TODO: Figure out how to route messages
     async fn send_message(&self, msg: Message, target: &Peer) -> mpsc::Receiver<bool> {
-        // Should I *start* the socket here?
         let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
 
-        // Arc?
         let (tx, rx) = mpsc::channel(32);
         let mutex_tx = Arc::new(tx);
-
-        // TODO: Create channel to communicate with "server"
 
         // TODO: Implement multiple pending messages per target
         self.state
@@ -135,22 +144,13 @@ impl Node {
         self.messages.lock().unwrap().push(msg.clone());
         let message_bytes = msg.to_bytes();
 
-        self.socket.send(&message_bytes).await.unwrap();
+        self.socket.send_to(&message_bytes, dest).await.unwrap();
         rx
     }
 
-    // TODO: Bind UDPSocket here.  Call send_message() from within the server
     pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
-        // TODO: Get info in here!
-        let socket = UdpSocket::bind(SocketAddr::new(
-            local_record.record.ip_address,
-            local_record.record.udp_port,
-        ))
-        .await
-        .unwrap();
-
         loop {
-            let Ok((size, sender_addr)) = socket.recv_from(&mut buffer).await else { todo!() };
+            let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
             let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
 
             match &buffer[0..2] {
