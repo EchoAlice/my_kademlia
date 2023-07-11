@@ -1,14 +1,16 @@
 use tokio::sync::mpsc;
 
+use crate::message::{Message, MessageBody};
+
 type Channel<T> = mpsc::Receiver<T>;
 pub struct Service {
-    node_rx: Channel<bool>, // TODO: Channel<Message>
-                            // pub socket: Arc<UdpSocket>,
-                            // pub outbound_requests: HashMap<Identifier, (Message, mpsc::recieve<bool>)>,
+    node_rx: Channel<Message>, // TODO: Channel<Message>
+                               // pub socket: Arc<UdpSocket>,
+                               // pub outbound_requests: HashMap<Identifier, (Message, mpsc::recieve<bool>)>,
 }
 
 impl Service {
-    pub fn spawn() -> mpsc::Sender<bool> {
+    pub fn spawn() -> mpsc::Sender<Message> {
         let (tx, node_rx) = mpsc::channel(32);
 
         // TODO: Bind UDPSocket here.
@@ -25,18 +27,19 @@ impl Service {
         tx
     }
 
-    // Create loop that listens for a bool
     pub async fn start(&mut self) {
-        // TODO: Should I implement tokio::select!  ???
         loop {
-            match self.node_rx.recv().await {
-                Some(true) => {
-                    println!("True was sent through channel to service");
+            let msg = self.node_rx.recv().await;
+            if msg.is_none() {
+                break;
+            };
+            match msg.unwrap().body {
+                MessageBody::Ping(datagram) => {
+                    println!("Ping was sent through channel to service");
                 }
-                Some(false) => {
-                    println!("False was sent through channel to service");
+                _ => {
+                    println!("TODO: Implement other message types for server");
                 }
-                _ => {}
             }
         }
     }

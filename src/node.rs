@@ -40,7 +40,7 @@ pub struct State {
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
-    pub service_channel: ServiceChannel<bool>,
+    pub service_channel: ServiceChannel<Message>,
     pub socket: Arc<UdpSocket>,
     pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
@@ -124,8 +124,12 @@ impl Node {
             return Err("Service channel wasn't created");
         }
 
-        // TODO: Remove this.  It's only here to verify message was sent through service channel to service.
-        let result = &self.service_channel.as_ref().unwrap().send(true).await;
+        // TODO: Remove this.  Implement message sending functionality within ping()
+        let msg = Message {
+            session: rand::thread_rng().gen_range(0..=255),
+            body: MessageBody::Ping(self.id),
+        };
+        &self.service_channel.as_ref().unwrap().send(msg).await;
 
         Ok(())
     }
