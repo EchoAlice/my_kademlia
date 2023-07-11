@@ -2,6 +2,7 @@ use crate::helper::{Identifier, PING_MESSAGE_SIZE};
 use crate::kbucket::{Bucket, KbucketTable, TableRecord};
 use crate::message::{Message, MessageBody};
 use crate::node;
+use crate::service::Service;
 
 use core::panic;
 use rand::Rng;
@@ -12,11 +13,12 @@ use std::sync::{Arc, Mutex};
 use tokio::io;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::SendError;
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 use tokio::time::Duration;
 
-type Channel<T> = Arc<mpsc::Sender<T>>;
-// type Channel<T> = Arc<oneshot::Sender<T>>;
+type ServiceChannel<T> = Option<mpsc::Sender<T>>;
+type ReqChannel<T> = Arc<mpsc::Sender<T>>;
 
 const NODES_TO_QUERY: usize = 1; // "a"
 
@@ -29,7 +31,7 @@ pub struct Peer {
 #[derive(Clone, Debug)]
 pub struct State {
     pub table: KbucketTable,
-    pub outbound_requests: HashMap<Identifier, (Message, Channel<bool>)>,
+    pub outbound_requests: HashMap<Identifier, (Message, ReqChannel<bool>)>,
 }
 
 // The main Kademlia client struct.
@@ -38,6 +40,7 @@ pub struct State {
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
+    pub service_channel: ServiceChannel<bool>,
     pub socket: Arc<UdpSocket>,
     pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
@@ -48,7 +51,7 @@ impl Node {
         Self {
             id: local_record.id,
             local_record,
-            messages: Default::default(),
+            service_channel: None,
             socket: Arc::new(
                 UdpSocket::bind(SocketAddr::new(
                     local_record.record.ip_address,
@@ -57,6 +60,7 @@ impl Node {
                 .await
                 .unwrap(),
             ),
+            messages: Default::default(),
             state: Arc::new(Mutex::new(State {
                 table: (KbucketTable::new(local_record)),
                 outbound_requests: (Default::default()),
@@ -112,13 +116,20 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
 
     // Starts server!
-    pub async fn start() {
-        // Service::spawn
+    pub async fn start(&mut self) -> Result<(), &'static str> {
+        let service_channel = Service::spawn();
+        self.service_channel = Some(service_channel);
 
-        // TODO: Create channel to communicate with "server"
+        if self.service_channel.is_none() {
+            return Err("Service channel wasn't created");
+        }
+
+        // TODO: Remove this.  It's only here to verify message was sent through service channel to service.
+        let result = &self.service_channel.as_ref().unwrap().send(true).await;
+
+        Ok(())
     }
 
-    // TODO: Should pong return something?
     async fn pong(&self, session: u8, target: &Peer) {
         let msg = Message {
             session,
@@ -286,6 +297,14 @@ mod tests {
         let result2 = local_table.add(remote_table.peer);
         assert!(result);
         assert!(!result2);
+    }
+
+    #[tokio::test]
+    async fn start_server() {
+        let mut local = make_node(0).await;
+        let result = local.start().await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
