@@ -42,8 +42,8 @@ pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
     pub service_channel: ServiceChannel<Message>,
-    pub socket: Arc<UdpSocket>,
-    pub messages: Arc<Mutex<Vec<Message>>>, //TODO: Pass <Message>    // Note: Here for testing purposes
+    // pub socket: Arc<UdpSocket>,
+    pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
 }
 
@@ -53,14 +53,14 @@ impl Node {
             id: local_record.id,
             local_record,
             service_channel: None,
-            socket: Arc::new(
-                UdpSocket::bind(SocketAddr::new(
-                    local_record.record.ip_address,
-                    local_record.record.udp_port,
-                ))
-                .await
-                .unwrap(),
-            ),
+            // socket: Arc::new(
+            //     UdpSocket::bind(SocketAddr::new(
+            //         local_record.record.ip_address,
+            //         local_record.record.udp_port,
+            //     ))
+            //     .await
+            //     .unwrap(),
+            // ),
             messages: Default::default(),
             state: Arc::new(Mutex::new(State {
                 table: (KbucketTable::new(local_record)),
@@ -93,7 +93,8 @@ impl Node {
             },
         };
 
-        &self.service_channel.as_ref().unwrap().send(msg).await;
+        // TODO: Implement send_message functionality before worrying about pong verification logic!
+        let result = &self.service_channel.as_ref().unwrap().send(msg).await;
 
         // TODO: Implement verification channel
         // let rx = &mut self.send_message(msg, &peer).await;
@@ -110,7 +111,7 @@ impl Node {
             session: rand::thread_rng().gen_range(0..=255),
             body: MessageBody::FindNode([self.id, *id]),
         };
-        self.send_message(msg, target).await;
+        // self.send_message(msg, target).await;
 
         unimplemented!()
     }
@@ -139,67 +140,69 @@ impl Node {
             session,
             body: MessageBody::Pong(self.id),
         };
-        self.send_message(msg, target).await;
+        // self.send_message(msg, target).await;
     }
 
-    // TODO: Delete this once this functionality is in place within service.
-    async fn send_message(&self, msg: MessageInner, target: &Peer) -> mpsc::Receiver<bool> {
-        let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
+    /*
+        // TODO: Delete this once this functionality is in place within service.
+        async fn send_message(&self, msg: Message) -> mpsc::Receiver<bool> {
+            let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
 
-        let (tx, rx) = mpsc::channel(32);
-        let mutex_tx = Arc::new(tx);
+            let (tx, rx) = mpsc::channel(32);
+            let mutex_tx = Arc::new(tx);
 
-        // TODO: Implement multiple pending messages per target
-        self.state
-            .lock()
-            .unwrap()
-            .outbound_requests
-            .insert(target.id, (msg.clone(), mutex_tx));
+            // TODO: Implement multiple pending messages per target
+            self.state
+                .lock()
+                .unwrap()
+                .outbound_requests
+                .insert(msg.target.id, (msg.inner.clone(), mutex_tx));
 
-        // self.messages.lock().unwrap().push(msg.clone());
-        let message_bytes = msg.to_bytes();
+            // self.messages.lock().unwrap().push(msg.clone());
+            let message_bytes = msg.inner.to_bytes();
 
-        self.socket.send_to(&message_bytes, dest).await.unwrap();
-        rx
-    }
-
-    pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
-        loop {
-            let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
-            let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
-
-            match &buffer[0..2] {
-                b"01" => {
-                    let message = MessageInner {
-                        session: buffer[2],
-                        body: MessageBody::Ping(requester_id),
-                    };
-                    self.process(message, &sender_addr).await;
-                }
-                b"02" => {
-                    let message = MessageInner {
-                        session: buffer[2],
-                        body: MessageBody::Pong(requester_id),
-                    };
-                    self.process(message, &sender_addr).await;
-                }
-                b"03" => {
-                    let message = MessageInner {
-                        session: buffer[2],
-                        body: MessageBody::FindNode([
-                            requester_id,
-                            buffer[35..67].try_into().expect("Invalid slice length"),
-                        ]),
-                    };
-                    self.process(message, &sender_addr).await;
-                }
-                _ => {
-                    panic!("Message wasn't legitimate");
-                }
-            }
+            self.socket.send_to(&message_bytes, dest).await.unwrap();
+            rx
         }
-    }
+    */
+    /*
+       pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
+           loop {
+               let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
+               let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
 
+               match &buffer[0..2] {
+                   b"01" => {
+                       let message = MessageInner {
+                           session: buffer[2],
+                           body: MessageBody::Ping(requester_id),
+                       };
+                       self.process(message, &sender_addr).await;
+                   }
+                   b"02" => {
+                       let message = MessageInner {
+                           session: buffer[2],
+                           body: MessageBody::Pong(requester_id),
+                       };
+                       self.process(message, &sender_addr).await;
+                   }
+                   b"03" => {
+                       let message = MessageInner {
+                           session: buffer[2],
+                           body: MessageBody::FindNode([
+                               requester_id,
+                               buffer[35..67].try_into().expect("Invalid slice length"),
+                           ]),
+                       };
+                       self.process(message, &sender_addr).await;
+                   }
+                   _ => {
+                       panic!("Message wasn't legitimate");
+                   }
+               }
+           }
+       }
+    */
     async fn process(&mut self, message: MessageInner, sender_addr: &SocketAddr) {
         match message.body {
             MessageBody::Ping(datagram) => {
@@ -314,28 +317,13 @@ mod tests {
     #[tokio::test]
     async fn ping() {
         let mut local = make_node(0).await;
-        let mut local_copy = local.clone();
         let mut remote = make_node(1).await;
-        let mut remote_copy = remote.clone();
-
-        // add remote peer to local node
         local.state.lock().unwrap().table.add(remote.local_record);
 
-        // start local node
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 1024];
-            local_copy.start_server(buffer).await;
-        });
-        // start remote
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 1024];
-            remote_copy.start_server(buffer).await;
-        });
-
+        local.start().await;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let result = local.ping(remote.id).await;
-        // TODO: Return result from ping
-        // assert!(result);
+        local.ping(remote.id).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         let mut dummy = make_node(2).await;
         let result = local.ping(dummy.id).await;
@@ -362,15 +350,7 @@ mod tests {
             .add(node_to_store.local_record);
 
         // start local node
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 1024];
-            local_copy.start_server(buffer).await;
-        });
         // start remote
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 1024];
-            remote_copy.start_server(buffer).await;
-        });
 
         // assert!(local.find_node(id).await, &vec![id]);
     }
