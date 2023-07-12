@@ -115,16 +115,15 @@ impl Node {
 
     // ---------------------------------------------------------------------------------------------------
 
-    // Starts server!
     pub async fn start(&mut self) -> Result<(), &'static str> {
-        let service_channel = Service::spawn();
+        let service_channel = Service::spawn(self.local_record.clone()).await;
         self.service_channel = Some(service_channel);
 
         if self.service_channel.is_none() {
             return Err("Service channel wasn't created");
         }
 
-        // TODO: Remove this.  Implement message sending functionality within ping()
+        // TODO: REMOVE.  Implement message sending functionality within ping()
         let msg = Message {
             session: rand::thread_rng().gen_range(0..=255),
             body: MessageBody::Ping(self.id),
