@@ -1,5 +1,7 @@
 use crate::helper::Identifier;
 use crate::kbucket::TableRecord;
+use crate::node::Peer;
+
 use std::collections::HashMap;
 use std::convert::From;
 
@@ -7,6 +9,13 @@ use std::convert::From;
 
 #[derive(Debug, Clone)]
 pub struct Message {
+    pub target: Peer,
+    // TODO: Replace with inner = MessageInner
+    pub inner: MessageInner,
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageInner {
     pub session: u8,
     pub body: MessageBody,
 }
@@ -18,7 +27,7 @@ pub enum MessageBody {
     FindNode([Identifier; 2]), // b"03"
 }
 
-impl Message {
+impl MessageInner {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
         match self.body {

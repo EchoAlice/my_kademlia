@@ -33,7 +33,7 @@ impl Service {
 
         println!("Spawning service");
 
-        // Create loop that listens for a bool
+        // Starts our main message-processing loop
         tokio::spawn(async move {
             service.start().await;
         });
@@ -41,18 +41,19 @@ impl Service {
         tx
     }
 
-    /// Main loop that continuously processes messages.
-    ///
-    ///       Node -> service   --->   target
     pub async fn start(&mut self) {
+        ///   
+        /// Node -> service   --->   target
         loop {
+            //  TODO: Pass target address into msg
             let msg = self.node_rx.recv().await.unwrap();
 
-            // TODO: Get target address from
-            match msg.body {
+            match msg.inner.body {
                 MessageBody::Ping(datagram) => {
                     println!("Ping was sent through channel to service.");
-                    // TODO: Send ping message to target peer
+                    println!("{:?}", msg.target);
+                    // TODO: Implement send_message()
+                    // self.send_message(msg.inner, msg.target);
                 }
 
                 _ => {
@@ -61,4 +62,12 @@ impl Service {
             }
         }
     }
+
+    async fn send_message(&self, msg: Message, target: &Peer) -> bool {
+        let dest = SocketAddr::new(target.record.ip_address, target.record.udp_port);
+
+        unimplemented!()
+    }
 }
+
+// TODO:  Create tests in here!!!
