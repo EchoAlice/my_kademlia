@@ -16,7 +16,9 @@ pub struct Service {
     pub socket: Arc<UdpSocket>,
     node_rx: RxChannel<Message>,
     // TODO: Create channel to send mpsc::Sender<bool> back to our Node struct!
-    // pub outbound_requests: HashMap<Identifier, (Message, mpsc::Receiver<bool>)>,
+    // TODO:               HashMap<Identifier, (Message, mpsc::Receiver<bool>)>,
+    pub outbound_requests: HashMap<Identifier, Message>,
+    pub messages: Vec<Message>, // Note: Here for testing purposes
 }
 
 impl Service {
@@ -36,6 +38,8 @@ impl Service {
                 .unwrap(),
             ),
             node_rx,
+            outbound_requests: Default::default(),
+            messages: Default::default(),
         };
 
         tokio::spawn(async move {
@@ -101,7 +105,7 @@ impl Service {
 
     // Response Messages
     // ---------------------------------------------------------------------------------------------------
-    async fn pong(&self, session: u8, target: Peer) {
+    async fn pong(&mut self, session: u8, target: Peer) {
         let msg = Message {
             target,
             inner: MessageInner {
@@ -117,10 +121,11 @@ impl Service {
 
     // TODO: Figure out whether I need a channel to communicate with node struct or not.
     // async fn send_message(&self, msg: Message) ->  mpsc::Receiver<bool>{
-    async fn send_message(&self, msg: Message) -> Result<()> {
+    async fn send_message(&mut self, msg: Message) -> Result<()> {
         let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
 
-        // TODO: Implement outbound requests.
+        self.outbound_requests.insert(msg.target.id, msg.clone());
+        self.messages.push(msg.clone());
 
         let message_bytes = msg.inner.to_bytes();
         let len = self.socket.send_to(&message_bytes, dest).await.unwrap();
