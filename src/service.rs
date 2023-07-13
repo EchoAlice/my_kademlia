@@ -45,34 +45,50 @@ impl Service {
     // Node's main message processing loop
     pub async fn start(&mut self) {
         loop {
-            // Client side:  Node -> Service -> Target
-            // ----------------------------------------
-            let internal_msg = self.node_rx.recv().await.unwrap();
-            match internal_msg.inner.body {
-                MessageBody::Ping(datagram) => {
-                    self.send_message(internal_msg).await;
-                }
-                _ => {
-                    println!("TODO: Implement other RPCs");
-                }
-            }
-
-            // Server side:
             let mut datagram = [0_u8; 1024];
-            let Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram).await else { todo!() };
-            let inbound_req = construct_inner_msg(datagram);
-            match &inbound_req.body {
-                MessageBody::Ping(requester_id) => {
-                    println!("Ping request received")
+            // TODO: Why can't i read from the socket???  Look into tokio::select!
+            // WIP!
+            tokio::select! {
+                // Client side:  Node -> Service -> Target
+                // ----------------------------------------
+                // let service_msg = self.node_rx.recv().await.unwrap();
+                // println!("Service msg: {:?}", service_msg);
+                // println!("\n");
+                Some(service_msg) = self.node_rx.recv() => {
+                // match service_msg.inner.body {
+                    match service_msg.inner.body {
+                        MessageBody::Ping(datagram) => {
+                            println!("sending ping");
+                            println!("\n");
+                            self.send_message(service_msg).await;
+                        }
+                        _ => {
+                            println!("TODO: Implement other RPCs");
+                        }
+                    }
                 }
-                MessageBody::Pong(requester_id) => {
-                    println!("Pong request received")
-                }
-                MessageBody::FindNode(requester_id) => {
-                    println!("FindNode request received")
-                }
-                _ => {
-                    unimplemented!()
+                // let Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram).await else { todo!() };
+                // let inbound_req = construct_inner_msg(datagram);
+                // println!("Inbound req: {:?}", inbound_req);
+                // Server side:
+                Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram) => {
+                    let inbound_req = construct_inner_msg(datagram);
+                    println!("Inbound req: {:?}", inbound_req);
+                    // TODO: Process received msg
+                    match &inbound_req.body {
+                        MessageBody::Ping(requester_id) => {
+                            println!("Ping request received")
+                        }
+                        MessageBody::Pong(requester_id) => {
+                            println!("Pong request received")
+                        }
+                        MessageBody::FindNode(requester_id) => {
+                            println!("FindNode request received")
+                        }
+                        _ => {
+                            unimplemented!()
+                        }
+                    }
                 }
             }
         }

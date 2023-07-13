@@ -42,7 +42,6 @@ pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
     pub service_channel: ServiceChannel<Message>,
-    // pub socket: Arc<UdpSocket>,
     pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
     pub state: Arc<Mutex<State>>,
 }
@@ -53,14 +52,6 @@ impl Node {
             id: local_record.id,
             local_record,
             service_channel: None,
-            // socket: Arc::new(
-            //     UdpSocket::bind(SocketAddr::new(
-            //         local_record.record.ip_address,
-            //         local_record.record.udp_port,
-            //     ))
-            //     .await
-            //     .unwrap(),
-            // ),
             messages: Default::default(),
             state: Arc::new(Mutex::new(State {
                 table: (KbucketTable::new(local_record)),
@@ -164,44 +155,6 @@ impl Node {
             self.socket.send_to(&message_bytes, dest).await.unwrap();
             rx
         }
-    */
-    /*
-       pub async fn start_server(&mut self, mut buffer: [u8; 1024]) {
-           loop {
-               let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
-               let requester_id: [u8; 32] = buffer[3..35].try_into().expect("Invalid slice length");
-
-               match &buffer[0..2] {
-                   b"01" => {
-                       let message = MessageInner {
-                           session: buffer[2],
-                           body: MessageBody::Ping(requester_id),
-                       };
-                       self.process(message, &sender_addr).await;
-                   }
-                   b"02" => {
-                       let message = MessageInner {
-                           session: buffer[2],
-                           body: MessageBody::Pong(requester_id),
-                       };
-                       self.process(message, &sender_addr).await;
-                   }
-                   b"03" => {
-                       let message = MessageInner {
-                           session: buffer[2],
-                           body: MessageBody::FindNode([
-                               requester_id,
-                               buffer[35..67].try_into().expect("Invalid slice length"),
-                           ]),
-                       };
-                       self.process(message, &sender_addr).await;
-                   }
-                   _ => {
-                       panic!("Message wasn't legitimate");
-                   }
-               }
-           }
-       }
     */
     async fn process(&mut self, message: MessageInner, sender_addr: &SocketAddr) {
         match message.body {
@@ -321,6 +274,7 @@ mod tests {
         local.state.lock().unwrap().table.add(remote.local_record);
 
         local.start().await;
+        remote.start().await;
         tokio::time::sleep(Duration::from_secs(1)).await;
         local.ping(remote.id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
