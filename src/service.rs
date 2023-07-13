@@ -1,18 +1,21 @@
+use crate::helper::Identifier;
 use crate::kbucket::TableRecord;
-use crate::message::{Message, MessageBody};
+use crate::message::{construct_inner_msg, Message, MessageBody};
 use crate::node::Peer;
+use std::collections::HashMap;
 use std::io::Result;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-type Channel<T> = mpsc::Receiver<T>;
+type RxChannel<T> = mpsc::Receiver<T>;
 pub struct Service {
     pub local_record: Peer,
     pub socket: Arc<UdpSocket>,
-    node_rx: Channel<Message>,
-    // pub outbound_requests: HashMap<Identifier, (Message, mpsc::recieve<bool>)>,
+    node_rx: RxChannel<Message>,
+    // TODO: Create channel to send mpsc::Sender<bool> back to our Node struct!
+    // pub outbound_requests: HashMap<Identifier, (Message, mpsc::Receiver<bool>)>,
 }
 
 impl Service {
@@ -32,9 +35,6 @@ impl Service {
             node_rx,
         };
 
-        println!("Spawning service");
-
-        // Starts our main message-processing loop
         tokio::spawn(async move {
             service.start().await;
         });
@@ -42,29 +42,35 @@ impl Service {
         tx
     }
 
+    // Node's main message processing loop
     pub async fn start(&mut self) {
         loop {
             // Client side:  Node -> Service -> Target
-            // ------------------------------
+            // ----------------------------------------
             let internal_msg = self.node_rx.recv().await.unwrap();
             match internal_msg.inner.body {
                 MessageBody::Ping(datagram) => {
-                    println!("Ping was sent through channel to service.");
-                    println!("{:?}", internal_msg.target);
-
                     self.send_message(internal_msg).await;
                 }
-
                 _ => {
-                    println!("TODO: Implement other message types for server");
+                    println!("TODO: Implement other RPCs");
                 }
             }
 
-            // Server side: Listens for inbound requests
-            // ------------------------------------------
-            let mut external_msg = [0_u8; 1024];
-            let Ok((size, sender_addr)) = self.socket.recv_from(&mut external_msg).await else { todo!() };
-            match &external_msg[0..2] {
+            // Server side:
+            let mut datagram = [0_u8; 1024];
+            let Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram).await else { todo!() };
+            let inbound_req = construct_inner_msg(datagram);
+            match &inbound_req.body {
+                MessageBody::Ping(requester_id) => {
+                    println!("Ping request received")
+                }
+                MessageBody::Pong(requester_id) => {
+                    println!("Pong request received")
+                }
+                MessageBody::FindNode(requester_id) => {
+                    println!("FindNode request received")
+                }
                 _ => {
                     unimplemented!()
                 }
@@ -72,6 +78,8 @@ impl Service {
         }
     }
 
+    // TODO: Figure out whether I need a channel to communicate with node struct or not.
+    // async fn send_message(&self, msg: Message) ->  mpsc::Receiver<bool>{
     async fn send_message(&self, msg: Message) -> Result<()> {
         let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
 
@@ -84,5 +92,3 @@ impl Service {
         Ok(())
     }
 }
-
-// TODO:  Create tests in here!!!

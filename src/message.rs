@@ -52,3 +52,28 @@ impl MessageInner {
         out
     }
 }
+
+pub fn construct_inner_msg(datagram: [u8; 1024]) -> MessageInner {
+    let requester_id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
+
+    match &datagram[0..2] {
+        b"01" => MessageInner {
+            session: datagram[2],
+            body: MessageBody::Ping(requester_id),
+        },
+        b"02" => MessageInner {
+            session: datagram[2],
+            body: MessageBody::Pong(requester_id),
+        },
+        b"03" => MessageInner {
+            session: datagram[2],
+            body: MessageBody::FindNode([
+                requester_id,
+                datagram[35..67].try_into().expect("Invalid slice length"),
+            ]),
+        },
+        _ => {
+            panic!("Message wasn't legitimate");
+        }
+    }
+}
