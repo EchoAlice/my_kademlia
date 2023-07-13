@@ -126,14 +126,6 @@ impl Node {
         Ok(())
     }
 
-    async fn pong(&self, session: u8, target: &Peer) {
-        let msg = MessageInner {
-            session,
-            body: MessageBody::Pong(self.id),
-        };
-        // self.send_message(msg, target).await;
-    }
-
     /*
         // TODO: Delete this once this functionality is in place within service.
         async fn send_message(&self, msg: Message) -> mpsc::Receiver<bool> {
@@ -156,21 +148,10 @@ impl Node {
             rx
         }
     */
+
+    // TODO: Transfer remaining functionality to service
     async fn process(&mut self, message: MessageInner, sender_addr: &SocketAddr) {
         match message.body {
-            MessageBody::Ping(datagram) => {
-                let session = message.session;
-                // self.messages.lock().unwrap().push(message);
-                let requester = Peer {
-                    id: datagram[0..32].try_into().expect("Invalid slice length"),
-                    record: TableRecord {
-                        ip_address: (sender_addr.ip()),
-                        udp_port: (sender_addr.port()),
-                    },
-                };
-                println!("send pong");
-                self.pong(session, &requester).await;
-            }
             MessageBody::Pong(datagram) => {
                 let node_id = &datagram[0..32];
 
@@ -203,7 +184,7 @@ impl Node {
             MessageBody::FindNode(datagram) => {
                 println!("FindNode datagram: {:?}", datagram)
             }
-            _ => println!("Message was not ping, pong, or FindNode"),
+            _ => println!("Message was not pong or FindNode"),
         }
     }
 }

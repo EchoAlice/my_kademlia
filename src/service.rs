@@ -1,7 +1,8 @@
 use crate::helper::Identifier;
 use crate::kbucket::TableRecord;
-use crate::message::{construct_inner_msg, Message, MessageBody};
+use crate::message::{construct_inner_msg, Message, MessageBody, MessageInner};
 use crate::node::Peer;
+use rand::Rng;
 use std::collections::HashMap;
 use std::io::Result;
 use std::net::SocketAddr;
@@ -19,6 +20,8 @@ pub struct Service {
 }
 
 impl Service {
+    // Main service functionality
+    // ---------------------------------------------------------------------------------------------------
     pub async fn spawn(local_record: Peer) -> mpsc::Sender<Message> {
         let (tx, node_rx) = mpsc::channel(32);
 
@@ -46,16 +49,10 @@ impl Service {
     pub async fn start(&mut self) {
         loop {
             let mut datagram = [0_u8; 1024];
-            // TODO: Why can't i read from the socket???  Look into tokio::select!
-            // WIP!
             tokio::select! {
                 // Client side:  Node -> Service -> Target
                 // ----------------------------------------
-                // let service_msg = self.node_rx.recv().await.unwrap();
-                // println!("Service msg: {:?}", service_msg);
-                // println!("\n");
                 Some(service_msg) = self.node_rx.recv() => {
-                // match service_msg.inner.body {
                     match service_msg.inner.body {
                         MessageBody::Ping(datagram) => {
                             println!("sending ping");
@@ -67,17 +64,25 @@ impl Service {
                         }
                     }
                 }
-                // let Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram).await else { todo!() };
-                // let inbound_req = construct_inner_msg(datagram);
-                // println!("Inbound req: {:?}", inbound_req);
                 // Server side:
                 Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram) => {
                     let inbound_req = construct_inner_msg(datagram);
                     println!("Inbound req: {:?}", inbound_req);
-                    // TODO: Process received msg
+
+                    // TODO: Process Pong and FindNode msgs
                     match &inbound_req.body {
                         MessageBody::Ping(requester_id) => {
-                            println!("Ping request received")
+                            println!("Ping request received");
+                            let session = inbound_req.session;
+                            // self.messages.lock().unwrap().push(message);
+                            let requester = Peer {
+                                id: datagram[0..32].try_into().expect("Invalid slice length"),
+                                record: TableRecord {
+                                    ip_address: (sender_addr.ip()),
+                                    udp_port: (sender_addr.port()),
+                                },
+                            };
+                            self.pong(session, requester).await;
                         }
                         MessageBody::Pong(requester_id) => {
                             println!("Pong request received")
@@ -94,6 +99,22 @@ impl Service {
         }
     }
 
+    // Response Messages
+    // ---------------------------------------------------------------------------------------------------
+    async fn pong(&self, session: u8, target: Peer) {
+        let msg = Message {
+            target,
+            inner: MessageInner {
+                session: (rand::thread_rng().gen_range(0..=255)),
+                body: (MessageBody::Pong(self.local_record.id)),
+            },
+        };
+
+        self.send_message(msg).await;
+    }
+
+    async fn found_node() {}
+
     // TODO: Figure out whether I need a channel to communicate with node struct or not.
     // async fn send_message(&self, msg: Message) ->  mpsc::Receiver<bool>{
     async fn send_message(&self, msg: Message) -> Result<()> {
@@ -103,7 +124,6 @@ impl Service {
 
         let message_bytes = msg.inner.to_bytes();
         let len = self.socket.send_to(&message_bytes, dest).await.unwrap();
-        println!("message length sent: {:?}", len);
 
         Ok(())
     }
