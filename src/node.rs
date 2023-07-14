@@ -1,20 +1,15 @@
-use crate::helper::{Identifier, PING_MESSAGE_SIZE};
+use crate::helper::Identifier;
 use crate::kbucket::{Bucket, KbucketTable, TableRecord};
 use crate::message::{Message, MessageBody, MessageInner};
-use crate::node;
 use crate::service::Service;
 
 use core::panic;
 use rand::Rng;
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr, SocketAddrV4};
-use std::ops::Deref;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
-use tokio::io;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::{oneshot, oneshot::error::RecvError};
 use tokio::time::Duration;
 
 type ServiceChannel<T> = Option<mpsc::Sender<T>>;
@@ -28,13 +23,6 @@ pub struct Peer {
     pub record: TableRecord,
 }
 
-#[derive(Clone, Debug)]
-pub struct State {
-    pub table: KbucketTable,
-    // pub outbound_requests: HashMap<Identifier, (Message, ReqChannel<bool>)>,
-    pub outbound_requests: HashMap<Identifier, (MessageInner, ReqChannel<bool>)>,
-}
-
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
 #[derive(Clone, Debug)]
@@ -42,8 +30,8 @@ pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
     pub service_channel: ServiceChannel<Message>,
-    pub messages: Arc<Mutex<Vec<Message>>>, // Note: Here for testing purposes
-    pub state: Arc<Mutex<State>>,
+    pub table: Arc<Mutex<KbucketTable>>,
+    pub outbound_requests: HashMap<Identifier, (MessageInner, ReqChannel<bool>)>,
 }
 
 impl Node {
@@ -52,11 +40,8 @@ impl Node {
             id: local_record.id,
             local_record,
             service_channel: None,
-            messages: Default::default(),
-            state: Arc::new(Mutex::new(State {
-                table: (KbucketTable::new(local_record)),
-                outbound_requests: (Default::default()),
-            })),
+            table: Arc::new(Mutex::new(KbucketTable::new(local_record))),
+            outbound_requests: (Default::default()),
         }
     }
 
@@ -67,7 +52,7 @@ impl Node {
     pub async fn ping(&mut self, id: Identifier) /*-> bool*/
     {
         let peer = {
-            let table = &self.state.lock().unwrap().table;
+            let table = &self.table.lock().unwrap();
             let target = table.get(&id);
             if target.is_none() {
                 return;
@@ -84,7 +69,7 @@ impl Node {
             },
         };
 
-        // TODO: Implement send_message functionality before worrying about pong verification logic!
+        // TODO: Implement pong verification logic
         let result = &self.service_channel.as_ref().unwrap().send(msg).await;
 
         // TODO: Implement verification channel
@@ -134,15 +119,6 @@ impl Node {
             let (tx, rx) = mpsc::channel(32);
             let mutex_tx = Arc::new(tx);
 
-            // TODO: Implement multiple pending messages per target
-            self.state
-                .lock()
-                .unwrap()
-                .outbound_requests
-                .insert(msg.target.id, (msg.inner.clone(), mutex_tx));
-
-            // self.messages.lock().unwrap().push(msg.clone());
-            let message_bytes = msg.inner.to_bytes();
 
             self.socket.send_to(&message_bytes, dest).await.unwrap();
             rx
@@ -156,8 +132,8 @@ impl Node {
                 let node_id = &datagram[0..32];
 
                 let (local_msg, tx) = {
-                    let state = self.state.lock().unwrap();
-                    let target = state.outbound_requests.get(node_id);
+                    // let state = self.state.lock().unwrap();
+                    let target = self.outbound_requests.get(node_id);
 
                     if target.is_none() {
                         println!("No outbound requests for node");
@@ -172,10 +148,9 @@ impl Node {
                     println!("Successful ping. Removing k,v");
                     tx.send(true).await;
 
-                    let state = &mut self.state.lock().unwrap();
                     // self.messages.lock().unwrap().push(message);
 
-                    state.outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
+                    self.outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
                 } else {
                     tx.send(false).await;
                     println!("Local and remote sessions don't match");
@@ -231,8 +206,8 @@ mod tests {
     #[tokio::test]
     async fn add_redundant_node() {
         let (local_node, remote_nodes) = make_nodes(2).await;
-        let mut local_table = &mut local_node.state.lock().unwrap().table;
-        let remote_table = &remote_nodes[0].state.lock().unwrap().table;
+        let mut local_table = &mut local_node.table.lock().unwrap();
+        let remote_table = &remote_nodes[0].table.lock().unwrap();
 
         let result = local_table.add(remote_table.peer);
         let result2 = local_table.add(remote_table.peer);
@@ -252,7 +227,7 @@ mod tests {
     async fn ping() {
         let mut local = make_node(0).await;
         let mut remote = make_node(1).await;
-        local.state.lock().unwrap().table.add(remote.local_record);
+        local.table.lock().unwrap().add(remote.local_record);
 
         local.start().await;
         remote.start().await;
@@ -274,15 +249,10 @@ mod tests {
         let mut remote_copy = remote.clone();
 
         // add remote peer to local node
-        local.state.lock().unwrap().table.add(remote.local_record);
+        local.table.lock().unwrap().add(remote.local_record);
 
         let node_to_store = make_node(2).await;
-        remote
-            .state
-            .lock()
-            .unwrap()
-            .table
-            .add(node_to_store.local_record);
+        remote.table.lock().unwrap().add(node_to_store.local_record);
 
         // start local node
         // start remote

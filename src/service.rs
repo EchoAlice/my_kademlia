@@ -10,12 +10,13 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
+type TxChannel<T> = mpsc::Sender<T>;
 type RxChannel<T> = mpsc::Receiver<T>;
 pub struct Service {
     pub local_record: Peer,
     pub socket: Arc<UdpSocket>,
     node_rx: RxChannel<Message>,
-    // TODO: Create channel to send mpsc::Sender<bool> back to our Node struct!
+    // service_tx: TxChannel<bool>,
     // TODO:               HashMap<Identifier, (Message, mpsc::Receiver<bool>)>,
     pub outbound_requests: HashMap<Identifier, Message>,
     pub messages: Vec<Message>, // Note: Here for testing purposes
@@ -78,7 +79,8 @@ impl Service {
                         MessageBody::Ping(requester_id) => {
                             println!("Ping request received");
                             let session = inbound_req.session;
-                            // self.messages.lock().unwrap().push(message);
+                            // self.messages.push(inbound_req.clone());
+
                             let requester = Peer {
                                 id: datagram[0..32].try_into().expect("Invalid slice length"),
                                 record: TableRecord {
@@ -124,6 +126,7 @@ impl Service {
     async fn send_message(&mut self, msg: Message) -> Result<()> {
         let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
 
+        // TODO: Implement multiple pending messages per target
         self.outbound_requests.insert(msg.target.id, msg.clone());
         self.messages.push(msg.clone());
 
