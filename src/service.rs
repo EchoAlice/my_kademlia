@@ -8,16 +8,13 @@ use std::io::Result;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
-type TxChannel<T> = mpsc::Sender<T>;
-type RxChannel<T> = mpsc::Receiver<T>;
 pub struct Service {
     pub local_record: Peer,
     pub socket: Arc<UdpSocket>,
-    node_rx: RxChannel<Message>,
-    // service_tx: TxChannel<bool>,
-    // TODO:               HashMap<Identifier, (Message, mpsc::Receiver<bool>)>,
+    node_tx: watch::Sender<bool>, // For communicating valid/invalid pong response
+    node_rx: mpsc::Receiver<Message>,
     pub outbound_requests: HashMap<Identifier, Message>,
     pub messages: Vec<Message>, // Note: Here for testing purposes
 }
@@ -25,8 +22,9 @@ pub struct Service {
 impl Service {
     // Main service functionality
     // ---------------------------------------------------------------------------------------------------
-    pub async fn spawn(local_record: Peer) -> mpsc::Sender<Message> {
-        let (tx, node_rx) = mpsc::channel(32);
+    pub async fn spawn(local_record: Peer) -> (mpsc::Sender<Message>, watch::Receiver<bool>) {
+        let (service_tx, node_rx) = mpsc::channel(32);
+        let (node_tx, service_rx) = watch::channel(false);
 
         let mut service = Service {
             local_record,
@@ -38,6 +36,7 @@ impl Service {
                 .await
                 .unwrap(),
             ),
+            node_tx,
             node_rx,
             outbound_requests: Default::default(),
             messages: Default::default(),
@@ -47,7 +46,7 @@ impl Service {
             service.start().await;
         });
 
-        tx
+        (service_tx, service_rx)
     }
 
     // Node's main message processing loop
@@ -120,6 +119,7 @@ impl Service {
     }
 
     async fn found_node() {}
+    // ---------------------------------------------------------------------------------------------------
 
     // TODO: Figure out whether I need a channel to communicate with node struct or not.
     // async fn send_message(&self, msg: Message) ->  mpsc::Receiver<bool>{

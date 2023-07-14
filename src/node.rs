@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::Duration;
 
-type ServiceChannel<T> = Option<mpsc::Sender<T>>;
-type ReqChannel<T> = Arc<mpsc::Sender<T>>;
+type ServiceTx<T> = Option<mpsc::Sender<T>>;
+type ServiceRx<T> = Option<watch::Receiver<T>>;
 
 const NODES_TO_QUERY: usize = 1; // "a"
 
@@ -29,9 +29,10 @@ pub struct Peer {
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
-    pub service_channel: ServiceChannel<Message>,
+    pub service_tx: ServiceTx<Message>,
+    pub service_rx: ServiceRx<bool>,
     pub table: Arc<Mutex<KbucketTable>>,
-    pub outbound_requests: HashMap<Identifier, (MessageInner, ReqChannel<bool>)>,
+    pub outbound_requests: HashMap<Identifier, MessageInner>,
 }
 
 impl Node {
@@ -39,7 +40,8 @@ impl Node {
         Self {
             id: local_record.id,
             local_record,
-            service_channel: None,
+            service_tx: None,
+            service_rx: None,
             table: Arc::new(Mutex::new(KbucketTable::new(local_record))),
             outbound_requests: (Default::default()),
         }
@@ -70,7 +72,7 @@ impl Node {
         };
 
         // TODO: Implement pong verification logic
-        let result = &self.service_channel.as_ref().unwrap().send(msg).await;
+        let result = &self.service_tx.as_ref().unwrap().send(msg).await;
 
         // TODO: Implement verification channel
         // let rx = &mut self.send_message(msg, &peer).await;
@@ -101,10 +103,10 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
-        let service_channel = Service::spawn(self.local_record.clone()).await;
-        self.service_channel = Some(service_channel);
+        let (service_tx, service_rx) = Service::spawn(self.local_record.clone()).await;
+        self.service_tx = Some(service_tx);
 
-        if self.service_channel.is_none() {
+        if self.service_tx.is_none() {
             return Err("Service channel wasn't created");
         }
 
@@ -131,7 +133,7 @@ impl Node {
             MessageBody::Pong(datagram) => {
                 let node_id = &datagram[0..32];
 
-                let (local_msg, tx) = {
+                let local_msg = {
                     // let state = self.state.lock().unwrap();
                     let target = self.outbound_requests.get(node_id);
 
@@ -139,20 +141,20 @@ impl Node {
                         println!("No outbound requests for node");
                     }
 
-                    let (msg, tx) = target.unwrap();
-                    (msg.clone(), tx.clone())
+                    let msg = target.unwrap();
+                    msg.clone()
                 };
 
                 // Verifyies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
                 if local_msg.session == message.session {
                     println!("Successful ping. Removing k,v");
-                    tx.send(true).await;
+                    // tx.send(true).await;
 
                     // self.messages.lock().unwrap().push(message);
 
                     self.outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
                 } else {
-                    tx.send(false).await;
+                    // tx.send(false).await;
                     println!("Local and remote sessions don't match");
                 }
             }
