@@ -1,12 +1,12 @@
 use crate::helper::Identifier;
-use crate::kbucket::TableRecord;
-use crate::message::{construct_inner_msg, Message, MessageBody, MessageInner};
+use crate::kbucket::{KbucketTable, TableRecord};
+use crate::message::{construct_msg, Message, MessageBody, MessageInner};
 use crate::node::Peer;
 use rand::Rng;
 use std::collections::HashMap;
 use std::io::Result;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 
@@ -16,13 +16,17 @@ pub struct Service {
     node_tx: watch::Sender<bool>, // For communicating valid/invalid pong response
     node_rx: mpsc::Receiver<Message>,
     pub outbound_requests: HashMap<Identifier, Message>,
+    pub table: Arc<Mutex<KbucketTable>>,
     pub messages: Vec<Message>, // Note: Here for testing purposes
 }
 
 impl Service {
     // Main service functionality
     // ---------------------------------------------------------------------------------------------------
-    pub async fn spawn(local_record: Peer) -> (mpsc::Sender<Message>, watch::Receiver<bool>) {
+    pub async fn spawn(
+        local_record: Peer,
+        table: Arc<Mutex<KbucketTable>>,
+    ) -> (mpsc::Sender<Message>, watch::Receiver<bool>) {
         let (service_tx, node_rx) = mpsc::channel(32);
         let (node_tx, service_rx) = watch::channel(false);
 
@@ -39,6 +43,7 @@ impl Service {
             node_tx,
             node_rx,
             outbound_requests: Default::default(),
+            table,
             messages: Default::default(),
         };
 
@@ -70,15 +75,27 @@ impl Service {
                 }
                 // Server side:
                 Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram) => {
-                    let inbound_req = construct_inner_msg(datagram);
+                    // Gather target peer info from datagram and kbuckettable
+                    let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
+                    let target = {
+                        let table = &self.table.lock().unwrap();
+                        let target = table.get(&id);
+                        if target.is_none() {
+                            println!("Peer not found in table");
+                            break
+                        }
+                        *target.unwrap()
+                    };
+                    let target = Peer {id, record: target};
+                    let inbound_req = construct_msg(datagram, target);
                     println!("Inbound req: {:?}", inbound_req);
 
                     // TODO: Process Pong and FindNode msgs
-                    match &inbound_req.body {
+                    match &inbound_req.inner.body {
                         MessageBody::Ping(requester_id) => {
                             println!("Ping request received");
-                            let session = inbound_req.session;
-                            // self.messages.push(inbound_req.clone());
+                            let session = inbound_req.inner.session;
+                            self.messages.push(inbound_req.clone());
 
                             let requester = Peer {
                                 id: datagram[0..32].try_into().expect("Invalid slice length"),
@@ -87,10 +104,12 @@ impl Service {
                                     udp_port: (sender_addr.port()),
                                 },
                             };
+
                             self.pong(session, requester).await;
                         }
                         MessageBody::Pong(requester_id) => {
-                            println!("Pong request received")
+                            println!("Pong request received");
+
                         }
                         MessageBody::FindNode(requester_id) => {
                             println!("FindNode request received")
@@ -121,8 +140,6 @@ impl Service {
     async fn found_node() {}
     // ---------------------------------------------------------------------------------------------------
 
-    // TODO: Figure out whether I need a channel to communicate with node struct or not.
-    // async fn send_message(&self, msg: Message) ->  mpsc::Receiver<bool>{
     async fn send_message(&mut self, msg: Message) -> Result<()> {
         let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
 

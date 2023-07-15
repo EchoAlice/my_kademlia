@@ -103,7 +103,8 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
-        let (service_tx, service_rx) = Service::spawn(self.local_record.clone()).await;
+        let (service_tx, service_rx) =
+            Service::spawn(self.local_record.clone(), self.table.clone()).await;
         self.service_tx = Some(service_tx);
 
         if self.service_tx.is_none() {
