@@ -1,21 +1,14 @@
 use crate::helper::{Identifier, U256};
 use crate::node::Peer;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 const BUCKET_SIZE: usize = 20; // "k"
 const MAX_BUCKETS: usize = 256;
 
-// TODO: Remove struct.  Just use SocketAddr
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TableRecord {
-    pub ip_address: IpAddr,
-    pub udp_port: u16,
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bucket {
-    pub map: HashMap<Identifier, TableRecord>,
+    pub map: HashMap<Identifier, SocketAddr>,
     pub limit: usize,
 }
 
@@ -27,9 +20,9 @@ impl Bucket {
         }
     }
 
-    fn add(&mut self, peer: Peer) -> Option<TableRecord> {
+    fn add(&mut self, peer: Peer) -> Option<SocketAddr> {
         if self.map.len() <= BUCKET_SIZE {
-            self.map.insert(peer.id, peer.record)
+            self.map.insert(peer.id, peer.socket_addr)
         } else {
             None
         }
@@ -61,13 +54,13 @@ impl KbucketTable {
         }
     }
 
-    pub fn get(&self, id: &Identifier) -> Option<&TableRecord> {
+    pub fn get(&self, id: &Identifier) -> Option<&SocketAddr> {
         let bucket_index = self.xor_bucket_index(id);
         let mut bucket = &self.buckets[bucket_index];
         bucket.map.get(id)
     }
 
-    pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], TableRecord>> {
+    pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
         let bucket_index = self.xor_bucket_index(id);
         if self.buckets[bucket_index].map.is_empty() {
             println!("BUCKET IS EMPTY");

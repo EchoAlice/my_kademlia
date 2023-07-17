@@ -1,5 +1,5 @@
 use crate::helper::Identifier;
-use crate::kbucket::{KbucketTable, TableRecord};
+use crate::kbucket::KbucketTable;
 use crate::message::{construct_msg, Message, MessageBody, MessageInner};
 use crate::node::Peer;
 use rand::Rng;
@@ -34,8 +34,8 @@ impl Service {
             local_record,
             socket: Arc::new(
                 UdpSocket::bind(SocketAddr::new(
-                    local_record.record.ip_address,
-                    local_record.record.udp_port,
+                    local_record.socket_addr.ip(),
+                    local_record.socket_addr.port(),
                 ))
                 .await
                 .unwrap(),
@@ -74,21 +74,21 @@ impl Service {
                     }
                 }
                 // Server side:
-                Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram) => {
+                Ok((size, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     // Gather target peer info from message
                     let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
 
                     // TODO: Convert Peer to {id, socket_addr}
-                    let target = Peer {id, record: TableRecord { ip_address: (sender_addr.ip()), udp_port: (sender_addr.port())}};
+                    let target = Peer {id, socket_addr};
 
-                    // TODO: Add target (pinging node) to routing table.
+                    // TODO: Add target to routing table.
 
                     let inbound_req = construct_msg(datagram, target);
+                    let session = inbound_req.inner.session;
                     println!("Inbound req: {:?}", inbound_req);
 
                     match &inbound_req.inner.body {
                         MessageBody::Ping(requester_id) => {
-                            let session = inbound_req.inner.session;
                             self.messages.push(inbound_req.clone());
 
                             self.pong(session, target).await;
@@ -126,10 +126,11 @@ impl Service {
     }
 
     async fn found_node() {}
-    // ---------------------------------------------------------------------------------------------------
 
+    // Helper
+    // ---------------------------------------------------------------------------------------------------
     async fn send_message(&mut self, msg: Message) -> Result<()> {
-        let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
+        let dest = SocketAddr::new(msg.target.socket_addr.ip(), msg.target.socket_addr.port());
 
         // TODO: Implement multiple pending messages per target
         self.outbound_requests.insert(msg.target.id, msg.clone());

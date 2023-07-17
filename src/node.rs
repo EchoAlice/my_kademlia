@@ -1,5 +1,5 @@
 use crate::helper::Identifier;
-use crate::kbucket::{Bucket, KbucketTable, TableRecord};
+use crate::kbucket::{Bucket, KbucketTable};
 use crate::message::{Message, MessageBody, MessageInner};
 use crate::service::Service;
 
@@ -20,7 +20,7 @@ const NODES_TO_QUERY: usize = 1; // "a"
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
     pub id: Identifier,
-    pub record: TableRecord,
+    pub socket_addr: SocketAddr,
 }
 
 // The main Kademlia client struct.
@@ -59,8 +59,8 @@ impl Node {
             if target.is_none() {
                 return;
             }
-            let record = *target.unwrap();
-            Peer { id, record }
+            let socket_addr = *target.unwrap();
+            Peer { id, socket_addr }
         };
 
         let msg = Message {
@@ -188,18 +188,15 @@ mod tests {
     }
 
     async fn make_node(index: u8) -> Node {
-        let ip_address = String::from("127.0.0.1").parse::<IpAddr>().unwrap();
+        let ip = String::from("127.0.0.1").parse::<IpAddr>().unwrap();
         let port_start = 9000_u16;
 
         let mut id = [0_u8; 32];
         id[31] += index;
-        let udp_port = port_start + index as u16;
+        let port = port_start + index as u16;
 
-        let record = TableRecord {
-            ip_address,
-            udp_port,
-        };
-        let peer = Peer { id, record };
+        let socket_addr = SocketAddr::new(ip, port);
+        let peer = Peer { id, socket_addr };
 
         Node::new(peer).await
     }
