@@ -64,7 +64,7 @@ impl Service {
                 Some(service_msg) = self.node_rx.recv() => {
                     match service_msg.inner.body {
                         MessageBody::Ping(datagram) => {
-                            println!("sending ping");
+                            println!("Sending ping");
                             println!("\n");
                             self.send_message(service_msg).await;
                         }
@@ -75,42 +75,30 @@ impl Service {
                 }
                 // Server side:
                 Ok((size, sender_addr)) = self.socket.recv_from(&mut datagram) => {
-                    // Gather target peer info from datagram and kbuckettable
+                    // Gather target peer info from message
                     let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
-                    let target = {
-                        let table = &self.table.lock().unwrap();
-                        let target = table.get(&id);
-                        if target.is_none() {
-                            println!("Peer not found in table");
-                            break
-                        }
-                        *target.unwrap()
-                    };
-                    let target = Peer {id, record: target};
+
+                    // TODO: Convert Peer to {id, socket_addr}
+                    let target = Peer {id, record: TableRecord { ip_address: (sender_addr.ip()), udp_port: (sender_addr.port())}};
+
+                    // TODO: Add target (pinging node) to routing table.
+
                     let inbound_req = construct_msg(datagram, target);
                     println!("Inbound req: {:?}", inbound_req);
 
-                    // TODO: Process Pong and FindNode msgs
                     match &inbound_req.inner.body {
                         MessageBody::Ping(requester_id) => {
-                            println!("Ping request received");
                             let session = inbound_req.inner.session;
                             self.messages.push(inbound_req.clone());
 
-                            let requester = Peer {
-                                id: datagram[0..32].try_into().expect("Invalid slice length"),
-                                record: TableRecord {
-                                    ip_address: (sender_addr.ip()),
-                                    udp_port: (sender_addr.port()),
-                                },
-                            };
-
-                            self.pong(session, requester).await;
+                            self.pong(session, target).await;
                         }
+                        // TODO:
                         MessageBody::Pong(requester_id) => {
                             println!("Pong request received");
 
                         }
+                        // TODO:
                         MessageBody::FindNode(requester_id) => {
                             println!("FindNode request received")
                         }

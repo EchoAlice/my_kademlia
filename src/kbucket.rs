@@ -6,7 +6,7 @@ use std::net::IpAddr;
 const BUCKET_SIZE: usize = 20; // "k"
 const MAX_BUCKETS: usize = 256;
 
-// TODO: Remove struct
+// TODO: Remove struct.  Just use SocketAddr
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TableRecord {
     pub ip_address: IpAddr,
