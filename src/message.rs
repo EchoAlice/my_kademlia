@@ -1,37 +1,37 @@
 use crate::helper::Identifier;
-use crate::kbucket::TableRecord;
 use crate::node::Peer;
 
 use std::collections::HashMap;
 use std::convert::From;
+use tokio::sync::oneshot;
 
 // TODO: Alias u8 = session
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Message {
     pub target: Peer,
-    // TODO: Replace with inner = MessageInner
     pub inner: MessageInner,
 }
 
-#[derive(Debug, Clone)]
+// Get rid of this?
+#[derive(Debug)]
 pub struct MessageInner {
     pub session: u8,
     pub body: MessageBody,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub enum MessageBody {
-    Ping(Identifier),          // b"01"
-    Pong(Identifier),          // b"02"
-    FindNode([Identifier; 2]), // b"03"
+    Ping(Identifier, Option<oneshot::Sender<bool>>), // b"01"
+    Pong(Identifier),                                // b"02"
+    FindNode([Identifier; 2]),                       // b"03"
 }
 
 impl MessageInner {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
         match self.body {
-            MessageBody::Ping(requester_id) => {
+            MessageBody::Ping(requester_id, _) => {
                 out.extend_from_slice(b"01");
                 out.push(self.session);
                 out.extend_from_slice(&requester_id);
@@ -61,7 +61,7 @@ pub fn construct_msg(datagram: [u8; 1024], target: Peer) -> Message {
             target,
             inner: MessageInner {
                 session: datagram[2],
-                body: MessageBody::Ping(requester_id),
+                body: MessageBody::Ping(requester_id, None),
             },
         },
         b"02" => Message {

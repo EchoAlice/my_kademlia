@@ -1,7 +1,7 @@
 use crate::helper::Identifier;
 use crate::kbucket::{Bucket, KbucketTable};
 use crate::message::{Message, MessageBody, MessageInner};
-use crate::service::Service;
+use crate::service::{self, Service};
 
 use core::panic;
 use rand::Rng;
@@ -9,11 +9,10 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 
 type ServiceTx<T> = Option<mpsc::Sender<T>>;
-type ServiceRx<T> = Option<watch::Receiver<T>>;
 
 const NODES_TO_QUERY: usize = 1; // "a"
 
@@ -25,12 +24,11 @@ pub struct Peer {
 
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
     pub service_tx: ServiceTx<Message>,
-    pub service_rx: ServiceRx<bool>,
     pub table: Arc<Mutex<KbucketTable>>,
     pub outbound_requests: HashMap<Identifier, MessageInner>,
 }
@@ -41,7 +39,6 @@ impl Node {
             id: local_record.id,
             local_record,
             service_tx: None,
-            service_rx: None,
             table: Arc::new(Mutex::new(KbucketTable::new(local_record))),
             outbound_requests: (Default::default()),
         }
@@ -51,32 +48,37 @@ impl Node {
 
     // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
-    pub async fn ping(&mut self, id: Identifier) /*-> bool*/
-    {
+    pub async fn ping(&mut self, id: Identifier) -> bool {
         let peer = {
             let table = &self.table.lock().unwrap();
             let target = table.get(&id);
             if target.is_none() {
-                return;
+                return false;
             }
             let socket_addr = *target.unwrap();
             Peer { id, socket_addr }
         };
 
+        let (tx, rx) = oneshot::channel();
+
         let msg = Message {
             target: peer,
             inner: MessageInner {
                 session: (rand::thread_rng().gen_range(0..=255)),
-                body: (MessageBody::Ping(self.id)),
+                body: (MessageBody::Ping(self.id, Some(tx))),
             },
         };
 
-        // TODO: Implement pong verification logic
-        let result = &self.service_tx.as_ref().unwrap().send(msg).await;
+        &self.service_tx.as_ref().unwrap().send(msg).await;
 
-        // TODO: Implement verification channel
-        // let rx = &mut self.send_message(msg, &peer).await;
-        // rx.recv().await.unwrap()
+        // TODO: Implement pong verification logic
+        rx.await.unwrap()
+
+        // let service_rx = { self.service_rx.as_mut().unwrap() };
+        // service_rx.changed().await;
+        // *service_rx.borrow()
+
+        // true
     }
 
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
@@ -108,25 +110,11 @@ impl Node {
         self.service_tx = Some(service_tx);
 
         if self.service_tx.is_none() {
-            return Err("Service channel wasn't created");
+            return Err("Service tx wasn't created");
         }
 
         Ok(())
     }
-
-    /*
-        // TODO: Delete this once this functionality is in place within service.
-        async fn send_message(&self, msg: Message) -> mpsc::Receiver<bool> {
-            let dest = SocketAddr::new(msg.target.record.ip_address, msg.target.record.udp_port);
-
-            let (tx, rx) = mpsc::channel(32);
-            let mutex_tx = Arc::new(tx);
-
-
-            self.socket.send_to(&message_bytes, dest).await.unwrap();
-            rx
-        }
-    */
 
     // TODO: Transfer remaining functionality to service
     async fn process(&mut self, message: MessageInner, sender_addr: &SocketAddr) {
@@ -135,9 +123,7 @@ impl Node {
                 let node_id = &datagram[0..32];
 
                 let local_msg = {
-                    // let state = self.state.lock().unwrap();
                     let target = self.outbound_requests.get(node_id);
-
                     if target.is_none() {
                         println!("No outbound requests for node");
                     }
@@ -146,7 +132,7 @@ impl Node {
                     msg.clone()
                 };
 
-                // Verifyies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
+                // Verifies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
                 if local_msg.session == message.session {
                     println!("Successful ping. Removing k,v");
                     // tx.send(true).await;
@@ -239,24 +225,25 @@ mod tests {
         let result = local.ping(dummy.id).await;
         // assert!(!result)
     }
+    /*
+       #[tokio::test]
+       async fn find_node() {
+           // TODO:  try to make_node() not await
+           let mut local = make_node(0).await;
+           let mut local_copy = local.clone();
+           let mut remote = make_node(1).await;
+           let mut remote_copy = remote.clone();
 
-    #[tokio::test]
-    async fn find_node() {
-        // TODO:  try to make_node() not await
-        let mut local = make_node(0).await;
-        let mut local_copy = local.clone();
-        let mut remote = make_node(1).await;
-        let mut remote_copy = remote.clone();
+           // add remote peer to local node
+           local.table.lock().unwrap().add(remote.local_record);
 
-        // add remote peer to local node
-        local.table.lock().unwrap().add(remote.local_record);
+           let node_to_store = make_node(2).await;
+           remote.table.lock().unwrap().add(node_to_store.local_record);
 
-        let node_to_store = make_node(2).await;
-        remote.table.lock().unwrap().add(node_to_store.local_record);
+           // start local node
+           // start remote
 
-        // start local node
-        // start remote
-
-        // assert!(local.find_node(id).await, &vec![id]);
-    }
+           // assert!(local.find_node(id).await, &vec![id]);
+       }
+    */
 }
