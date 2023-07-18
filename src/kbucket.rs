@@ -1,34 +1,21 @@
 use crate::helper::{Identifier, U256};
 use crate::node::Peer;
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 
-const BUCKET_SIZE: usize = 20;
+const BUCKET_SIZE: usize = 20; // "k"
 const MAX_BUCKETS: usize = 256;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TableRecord {
-    pub ip_address: Ipv4Addr,
-    pub udp_port: u16,
-}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bucket {
-    pub map: HashMap<Identifier, TableRecord>,
+    pub map: HashMap<Identifier, SocketAddr>,
     pub limit: usize,
 }
 
 impl Bucket {
-    fn new(limit: usize) -> Self {
-        Bucket {
-            map: HashMap::new(),
-            limit,
-        }
-    }
-
-    fn add(&mut self, peer: Peer) -> Option<TableRecord> {
+    fn add(&mut self, peer: Peer) -> Option<SocketAddr> {
         if self.map.len() <= BUCKET_SIZE {
-            self.map.insert(peer.id, peer.record)
+            self.map.insert(peer.id, peer.socket_addr)
         } else {
             None
         }
@@ -60,16 +47,23 @@ impl KbucketTable {
         }
     }
 
-    pub fn get(&self, id: &Identifier) -> Option<&TableRecord> {
+    pub fn get(&self, id: &Identifier) -> Option<&SocketAddr> {
         let bucket_index = self.xor_bucket_index(id);
-        let mut bucket = &self.buckets[bucket_index];
+        let bucket = &self.buckets[bucket_index];
         bucket.map.get(id)
     }
 
-    pub fn get_bucket_for(&self, id: &Identifier) -> &HashMap<[u8; 32], TableRecord> {
+    pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
         let bucket_index = self.xor_bucket_index(id);
-        &self.buckets[bucket_index].map
+        if self.buckets[bucket_index].map.is_empty() {
+            println!("BUCKET IS EMPTY");
+            return None;
+        }
+        println!("BUCKET ISN't EMPTY");
+        Some(&self.buckets[bucket_index].map)
     }
+
+    // TODO: pub fn get_closest_nodes(id)
 
     pub fn xor_bucket_index(&self, id: &Identifier) -> usize {
         let x = U256::from(self.peer.id);

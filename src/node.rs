@@ -1,89 +1,100 @@
-use crate::helper::{Identifier, PING_MESSAGE_SIZE};
-use crate::kbucket::{Bucket, KbucketTable, TableRecord};
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::net::{Ipv4Addr, SocketAddrV4};
-use std::sync::{Arc, Mutex};
-use tokio::io;
-use tokio::net::UdpSocket;
-use tokio::time::Duration;
+use crate::helper::Identifier;
+use crate::kbucket::KbucketTable;
+use crate::message::{Message, MessageBody, MessageInner};
+use crate::service::Service;
+
+use rand::Rng;
+use std::{
+    collections::HashMap,
+    future::Future,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
     pub id: Identifier,
-    pub record: TableRecord,
+    pub socket_addr: SocketAddr,
 }
+
+// TODO: Handle errors properly
 
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Node {
+    pub id: Identifier,
+    pub local_record: Peer,
+    pub service_tx: Option<mpsc::Sender<Message>>,
     pub table: Arc<Mutex<KbucketTable>>,
-    pub store: HashMap<Vec<u8>, Vec<u8>>, // Same storage as Portal network to store samples
-    pub socket: Arc<UdpSocket>,
+    pub outbound_requests: HashMap<Identifier, MessageInner>,
 }
 
 impl Node {
-    pub async fn new(peer: Peer) -> Self {
+    pub async fn new(local_record: Peer) -> Self {
         Self {
-            table: Arc::new(Mutex::new(KbucketTable::new(peer))),
-            store: Default::default(),
-            socket: Arc::new(
-                UdpSocket::bind(SocketAddrV4::new(
-                    peer.record.ip_address,
-                    peer.record.udp_port,
-                ))
-                .await
-                .unwrap(),
-            ),
+            id: local_record.id,
+            local_record,
+            service_tx: None,
+            table: Arc::new(Mutex::new(KbucketTable::new(local_record))),
+            outbound_requests: (Default::default()),
         }
     }
 
-    // Protocol's RPCs:
+    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
+    /// to some given node ID.  We call this procedure a **node lookup**".
+    ///
+    // TODO: node_lookup(self, id) -> peer {}
+
+    // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
-    pub fn find_node(&self, id: &Identifier) -> HashMap<[u8; 32], TableRecord> {
-        self.table.lock().unwrap().get_bucket_for(id).clone()
+
+    pub fn ping(&mut self, id: Identifier) -> impl Future<Output = bool> + '_ {
+        async move {
+            let peer = {
+                let table = &self.table.lock().unwrap();
+                let target = table.get(&id);
+                if target.is_none() {
+                    return false;
+                }
+                let socket_addr = *target.unwrap();
+                Peer { id, socket_addr }
+            };
+
+            let (tx, rx) = oneshot::channel();
+
+            let msg = Message {
+                target: peer,
+                inner: MessageInner {
+                    session: (rand::thread_rng().gen_range(0..=255)),
+                    body: (MessageBody::Ping(self.id, Some(tx))),
+                },
+            };
+
+            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+            rx.await.unwrap()
+        }
     }
 
-    pub async fn ping(&self, node_to_ping: &Identifier) -> usize {
-        let message = b"Ping";
+    /// TODO:  1. Set up networking communication for find_node() **with non-empty bucket**.
+    ///        2. Create complete routing table logic (return K closest nodes instead of indexed bucket)
+    // pub fn find_node(&mut self, id: &Identifier) -> impl Future<Output = bool> + '_ {}
 
-        let remote_socket = {
-            let table = self.table.lock().unwrap();
-            let remote_record = table.get(node_to_ping).unwrap();
-            SocketAddrV4::new(remote_record.ip_address, remote_record.udp_port)
-        };
-
-        self.socket.connect(remote_socket).await;
-        self.socket.send(message).await.unwrap()
-    }
-
-    // TODO:
+    // TODO: Later
     // pub fn find_value() {}
 
-    // TODO:
-    // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
+    // TODO: Later
+    // pub fn store(&mut self, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
-    async fn pong(&self, addr_to_pong: &SocketAddr) {
-        let message = b"Pong";
-        self.socket.send_to(message, addr_to_pong).await;
-    }
 
-    pub async fn start_server(&self, mut buffer: [u8; 1024]) {
-        loop {
-            let Ok((size, sender_addr)) = self.socket.recv_from(&mut buffer).await else { todo!() };
-            self.process(&buffer, &sender_addr).await;
-        }
-    }
-
-    async fn process(&self, message: &[u8], sender_addr: &SocketAddr) {
-        println!("Message: {:?}", message);
-        if &message[0..4] == b"Ping" {
-            self.pong(sender_addr).await;
-        }
-        if &message[0..4] == b"Pong" {
-            println!("Message was pong");
+    pub async fn start(&mut self) -> Result<(), &'static str> {
+        if let Some(service_tx) = Service::spawn(self.local_record, self.table.clone()).await {
+            self.service_tx = Some(service_tx);
+            Ok(())
+        } else {
+            Err("Service wasn't created")
         }
     }
 }
@@ -91,43 +102,41 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{helper::PING_MESSAGE_SIZE, node};
-    use std::sync::LockResult;
+    use std::net::IpAddr;
+    use tokio::time::Duration;
 
-    async fn mk_nodes(n: u8) -> (Node, Vec<Node>) {
-        let ip_address = String::from("127.0.0.1").parse::<Ipv4Addr>().unwrap();
-        let port_start = 9000_u16;
-
-        let local_node = mk_node(&ip_address, port_start, 0).await;
+    async fn make_nodes(n: u8) -> (Node, Vec<Node>) {
+        let local_node = make_node(0).await;
         let mut remote_nodes = Vec::new();
 
         for i in 1..n {
-            remote_nodes.push(mk_node(&ip_address, port_start, i).await);
+            remote_nodes.push(make_node(i).await);
         }
 
         (local_node, remote_nodes)
     }
 
-    async fn mk_node(ip_address: &Ipv4Addr, port_start: u16, index: u8) -> Node {
+    async fn make_node(index: u8) -> Node {
+        let ip = String::from("127.0.0.1").parse::<IpAddr>().unwrap();
+        let port_start = 9000_u16;
+
         let mut id = [0_u8; 32];
         id[31] += index;
-        let udp_port = port_start + index as u16;
+        let port = port_start + index as u16;
 
-        let record = TableRecord {
-            ip_address: *ip_address,
-            udp_port,
-        };
-        let peer = Peer { id, record };
+        let socket_addr = SocketAddr::new(ip, port);
+        let peer = Peer { id, socket_addr };
 
         Node::new(peer).await
     }
 
-    // Run tests independently.  Tests fail when they're run together bc of addresses reuse.
+    // Run tests independently.  Tests fail when they're run together bc of address reuse.
+    // TIP: If you don't give the thing a port, a free port is given automatically
     #[tokio::test]
     async fn add_redundant_node() {
-        let (local_node, remote_nodes) = mk_nodes(2).await;
-        let mut local_table = local_node.table.lock().unwrap();
-        let remote_table = remote_nodes[0].table.lock().unwrap();
+        let (local_node, remote_nodes) = make_nodes(2).await;
+        let local_table = &mut local_node.table.lock().unwrap();
+        let remote_table = &remote_nodes[0].table.lock().unwrap();
 
         let result = local_table.add(remote_table.peer);
         let result2 = local_table.add(remote_table.peer);
@@ -136,57 +145,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn find_node() {
-        let (local_node, remote_nodes) = mk_nodes(10).await;
-
-        let (node_to_find, ntf_bucket_index) = {
-            let mut local_table = local_node.table.lock().unwrap();
-            let node_to_find = remote_nodes[1].table.lock().unwrap().peer.id;
-            let ntf_bucket_index = local_table.xor_bucket_index(&node_to_find);
-
-            for node in &remote_nodes {
-                let remote_peer = node.table.lock().unwrap().peer;
-                local_table.add(remote_peer);
-            }
-            (node_to_find, ntf_bucket_index)
-        };
-
-        let closest_nodes = local_node.find_node(&node_to_find);
-
-        for node in closest_nodes {
-            let bucket_index = local_node.table.lock().unwrap().xor_bucket_index(&node.0);
-            assert_eq!(ntf_bucket_index, bucket_index);
-        }
-    }
-
-    #[tokio::test]
     async fn ping() {
-        let (local_node, remote_nodes) = mk_nodes(2).await;
+        let mut local = make_node(0).await;
+        let mut remote = make_node(1).await;
+        local.table.lock().unwrap().add(remote.local_record);
 
-        let remote_id = {
-            let mut local_table = local_node.table.lock().unwrap();
-            let remote_peer = remote_nodes[0].table.lock().unwrap().peer;
-            local_table.add(remote_peer);
-            remote_peer.id
-        };
-
-        let local_node_copy = local_node.clone();
-        let remote_node_copy = remote_nodes[0].clone();
-
-        tokio::spawn(async move {
-            let mut buffer1 = [0u8; 1024];
-            println!("Starting remote server");
-            remote_node_copy.start_server(buffer1).await;
-        });
-        tokio::spawn(async move {
-            let mut buffer2 = [0u8; 1024];
-            println!("Starting local server");
-            local_node_copy.start_server(buffer2).await;
-        });
-
-        let result = local_node.ping(&remote_id).await;
-
+        let _ = local.start().await;
+        let _ = remote.start().await;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        assert_eq!(result, PING_MESSAGE_SIZE);
+        let ping = local.ping(remote.id);
+        assert!(ping.await);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let dummy = make_node(2).await;
+        let ping = local.ping(dummy.id);
+        assert!(!ping.await);
     }
 }
