@@ -57,7 +57,7 @@ impl Service {
         loop {
             let mut datagram = [0_u8; 1024];
             tokio::select! {
-                // Node to it's own server:
+                // Service Requests:
                 Some(service_msg) = self.node_rx.recv() => {
                     match service_msg.inner.body {
                         MessageBody::Ping(_, _) => {
@@ -68,43 +68,22 @@ impl Service {
                         }
                     }
                 }
-                // TODO: Clean this thing up.
-                // Server processing other peers' messages:
+                // External Message Processing:
                 Ok((size, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
                     let target = Peer {id, socket_addr};
                     let inbound_req = construct_msg(datagram, target);
                     // println!("Inbound message: {:?}", inbound_req);
-                    let session = inbound_req.inner.session;
 
                     match &inbound_req.inner.body {
                         MessageBody::Ping(requester_id, None) => {
                             self.table.lock().unwrap().add(target);
                             // self.messages.push(inbound_req.clone());
-                            self.pong(session, target).await;
+                            self.pong(inbound_req.inner.session, target).await;
                         }
                         MessageBody::Pong(requester_id) => {
                             // self.messages.push(inbound_req.clone());
-                            let local_msg = self.outbound_requests.get(&id);
-                            if local_msg.is_none() {
-                                println!("No outbound requests for node");
-                                //drop message
-                            }
-                            let local_msg = local_msg.unwrap();
-                            let local_msg = self.outbound_requests.remove(&id).unwrap(); // Warning: This removes all outbound reqs to an individual node.
-                            if let MessageBody::Ping(_, tx) = local_msg.inner.body {
-                                // Verifies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
-                                if local_msg.inner.session == inbound_req.inner.session {
-                                    println!("Successful ping. Removing k,v");
-                                    tx.unwrap().send(true);
-                                    // TODO: Handle errors properly
-                                } else {
-                                    println!("Local and remote sessions don't match");
-                                    tx.unwrap().send(false);
-                                }
-                            } else {
-                                println!("Client responded with incorrect message type")
-                            }
+                            self.sessions_match(id, inbound_req);
                         }
                         // TODO:
                         MessageBody::FindNode(requester_id) => {
@@ -135,7 +114,7 @@ impl Service {
 
     async fn found_node() {}
 
-    // Helper
+    // Helper Functions
     // ---------------------------------------------------------------------------------------------------
     async fn send_message(&mut self, msg: Message) -> Result<()> {
         let dest = SocketAddr::new(msg.target.socket_addr.ip(), msg.target.socket_addr.port());
@@ -148,5 +127,25 @@ impl Service {
         // self.messages.push(msg.clone());
 
         Ok(())
+    }
+
+    // Verifies the pong message received matches the ping originally sent and sends message to high level ping()
+    fn sessions_match(&mut self, id: Identifier, inbound_req: Message) -> bool {
+        let local_msg = self.outbound_requests.remove(&id).unwrap(); // Warning: This removes all outbound reqs to an individual node.
+        if let MessageBody::Ping(_, tx) = local_msg.inner.body {
+            if local_msg.inner.session == inbound_req.inner.session {
+                println!("Successful ping. Removing k,v");
+                tx.unwrap().send(true);
+                true
+                // TODO: Handle errors properly
+            } else {
+                println!("Local and remote sessions don't match");
+                tx.unwrap().send(false);
+                false
+            }
+        } else {
+            println!("Client responded with incorrect message type");
+            false
+        }
     }
 }
