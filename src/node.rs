@@ -182,12 +182,12 @@ mod tests {
         local.start().await;
         remote.start().await;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let result = local.ping(remote.id);
-        assert!(result.await);
+        let ping = local.ping(remote.id);
+        assert!(ping.await);
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let mut dummy = make_node(2).await;
-        let result = local.ping(dummy.id);
-        assert!(!result.await);
+        let ping = local.ping(dummy.id);
+        assert!(!ping.await);
     }
 }

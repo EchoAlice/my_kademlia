@@ -61,8 +61,6 @@ impl Service {
                 Some(service_msg) = self.node_rx.recv() => {
                     match service_msg.inner.body {
                         MessageBody::Ping(_, _) => {
-                            println!("Sending ping");
-                            println!("\n");
                             self.send_message(service_msg).await;
                         }
                         _ => {
@@ -70,11 +68,13 @@ impl Service {
                         }
                     }
                 }
+                // TODO: Clean this thing up.
                 // Server processing other peers' messages:
                 Ok((size, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
                     let target = Peer {id, socket_addr};
                     let inbound_req = construct_msg(datagram, target);
+                    // println!("Inbound message: {:?}", inbound_req);
                     let session = inbound_req.inner.session;
 
                     match &inbound_req.inner.body {
@@ -94,8 +94,6 @@ impl Service {
                             let local_msg = self.outbound_requests.remove(&id).unwrap(); // Warning: This removes all outbound reqs to an individual node.
                             if let MessageBody::Ping(_, tx) = local_msg.inner.body {
                                 // Verifies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
-                                println!("{:?}", local_msg.inner.session);
-                                println!("{:?}", inbound_req.inner.session);
                                 if local_msg.inner.session == inbound_req.inner.session {
                                     println!("Successful ping. Removing k,v");
                                     tx.unwrap().send(true);
@@ -127,7 +125,7 @@ impl Service {
         let msg = Message {
             target,
             inner: MessageInner {
-                session: (rand::thread_rng().gen_range(0..=255)),
+                session,
                 body: (MessageBody::Pong(self.local_record.id)),
             },
         };
