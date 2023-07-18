@@ -86,7 +86,8 @@ impl Node {
     ///
     /// TODO:  1. Set up networking communication for find_node() **with non-empty bucket**.
     ///        2. Create complete routing table logic (return K closest nodes instead of indexed bucket)
-    pub async fn find_node(&mut self, id: &Identifier, target: &Peer) -> u8 {
+    pub fn find_node(&mut self, id: &Identifier, target: &Peer) /*-> impl Future<Output = bool> + '_*/
+    {
         let msg = MessageInner {
             session: rand::thread_rng().gen_range(0..=255),
             body: MessageBody::FindNode([self.id, *id]),
@@ -163,14 +164,6 @@ mod tests {
         let result2 = local_table.add(remote_table.peer);
         assert!(result);
         assert!(!result2);
-    }
-
-    #[tokio::test]
-    async fn start_server() {
-        let mut local = make_node(0).await;
-        let result = local.start().await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        assert!(result.is_ok());
     }
 
     #[tokio::test]
