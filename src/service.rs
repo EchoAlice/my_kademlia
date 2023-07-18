@@ -2,13 +2,12 @@ use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{construct_msg, Message, MessageBody, MessageInner};
 use crate::node::Peer;
-use rand::Rng;
 use std::collections::HashMap;
 use std::io::Result;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 
 pub struct Service {
     pub local_record: Peer,
@@ -16,18 +15,17 @@ pub struct Service {
     node_rx: mpsc::Receiver<Message>,
     pub outbound_requests: HashMap<Identifier, Message>,
     pub table: Arc<Mutex<KbucketTable>>,
-    pub messages: Vec<Message>, // Note: Here for testing purposes
 }
 
+// TODO: Handle errors properly
 impl Service {
     // Main service functionality
     // ---------------------------------------------------------------------------------------------------
     pub async fn spawn(
         local_record: Peer,
         table: Arc<Mutex<KbucketTable>>,
-    ) -> (mpsc::Sender<Message>, watch::Receiver<bool>) {
+    ) -> mpsc::Sender<Message> {
         let (service_tx, node_rx) = mpsc::channel(32);
-        let (node_tx, service_rx) = watch::channel(false);
 
         let mut service = Service {
             local_record,
@@ -42,14 +40,13 @@ impl Service {
             node_rx,
             outbound_requests: Default::default(),
             table,
-            messages: Default::default(),
         };
 
         tokio::spawn(async move {
             service.start().await;
         });
 
-        (service_tx, service_rx)
+        service_tx
     }
 
     // Node's main message processing loop
@@ -61,7 +58,7 @@ impl Service {
                 Some(service_msg) = self.node_rx.recv() => {
                     match service_msg.inner.body {
                         MessageBody::Ping(_, _) => {
-                            self.send_message(service_msg).await;
+                            let _ = self.send_message(service_msg).await;
                         }
                         _ => {
                             println!("TODO: Implement other RPCs");
@@ -69,24 +66,21 @@ impl Service {
                     }
                 }
                 // External Message Processing:
-                Ok((size, socket_addr)) = self.socket.recv_from(&mut datagram) => {
+                Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
                     let target = Peer {id, socket_addr};
                     let inbound_req = construct_msg(datagram, target);
-                    // println!("Inbound message: {:?}", inbound_req);
 
                     match &inbound_req.inner.body {
-                        MessageBody::Ping(requester_id, None) => {
+                        MessageBody::Ping(_, None) => {
                             self.table.lock().unwrap().add(target);
-                            // self.messages.push(inbound_req.clone());
                             self.pong(inbound_req.inner.session, target).await;
                         }
-                        MessageBody::Pong(requester_id) => {
-                            // self.messages.push(inbound_req.clone());
+                        MessageBody::Pong(_) => {
                             self.sessions_match(id, inbound_req);
                         }
                         // TODO:
-                        MessageBody::FindNode(requester_id) => {
+                        MessageBody::FindNode(_) => {
                             println!("FindNode request received")
                         }
                         _ => {
@@ -109,10 +103,11 @@ impl Service {
             },
         };
 
-        self.send_message(msg).await;
+        let _ = self.send_message(msg).await;
     }
 
-    async fn found_node() {}
+    // TODO:
+    // async fn found_node() {}
 
     // Helper Functions
     // ---------------------------------------------------------------------------------------------------
@@ -120,11 +115,10 @@ impl Service {
         let dest = SocketAddr::new(msg.target.socket_addr.ip(), msg.target.socket_addr.port());
 
         let message_bytes = msg.inner.to_bytes();
-        let len = self.socket.send_to(&message_bytes, dest).await.unwrap();
+        let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
 
         // TODO: Implement multiple pending messages per target
         self.outbound_requests.insert(msg.target.id, msg);
-        // self.messages.push(msg.clone());
 
         Ok(())
     }
@@ -135,12 +129,11 @@ impl Service {
         if let MessageBody::Ping(_, tx) = local_msg.inner.body {
             if local_msg.inner.session == inbound_req.inner.session {
                 println!("Successful ping. Removing k,v");
-                tx.unwrap().send(true);
+                let _ = tx.unwrap().send(true);
                 true
-                // TODO: Handle errors properly
             } else {
                 println!("Local and remote sessions don't match");
-                tx.unwrap().send(false);
+                let _ = tx.unwrap().send(false);
                 false
             }
         } else {

@@ -1,11 +1,7 @@
 use crate::helper::Identifier;
 use crate::node::Peer;
 
-use std::collections::HashMap;
-use std::convert::From;
 use tokio::sync::oneshot;
-
-// TODO: Alias u8 = session
 
 #[derive(Debug)]
 pub struct Message {
@@ -47,7 +43,6 @@ impl MessageInner {
                 out.extend_from_slice(&requester_id);
                 out.extend_from_slice(&id_to_find);
             }
-            _ => {}
         }
         out
     }

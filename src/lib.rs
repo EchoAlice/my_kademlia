@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 pub mod helper;
 pub mod kbucket;
 pub mod message;

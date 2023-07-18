@@ -1,25 +1,16 @@
 use crate::helper::Identifier;
-use crate::kbucket::{Bucket, KbucketTable};
+use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody, MessageInner};
-use crate::service::{self, Service};
+use crate::service::Service;
 
-use core::panic;
 use rand::Rng;
 use std::{
     collections::HashMap,
     future::Future,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     sync::{Arc, Mutex},
 };
-use tokio::{
-    net::UdpSocket,
-    sync::{mpsc, oneshot},
-    time::Duration,
-};
-
-type ServiceTx<T> = Option<mpsc::Sender<T>>;
-
-const NODES_TO_QUERY: usize = 1; // "a"
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
@@ -33,7 +24,7 @@ pub struct Peer {
 pub struct Node {
     pub id: Identifier,
     pub local_record: Peer,
-    pub service_tx: ServiceTx<Message>,
+    pub service_tx: Option<mpsc::Sender<Message>>,
     pub table: Arc<Mutex<KbucketTable>>,
     pub outbound_requests: HashMap<Identifier, MessageInner>,
 }
@@ -49,6 +40,9 @@ impl Node {
         }
     }
 
+    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
+    /// to some given node ID.  We call this procedure a **node lookup**".
+    ///
     // TODO: node_lookup(self, id) -> peer {}
 
     // Protocol's Exposed functions:
@@ -76,38 +70,26 @@ impl Node {
                 },
             };
 
-            &self.service_tx.as_ref().unwrap().send(msg).await;
+            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
             rx.await.unwrap()
         }
     }
 
-    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
-    /// to some given node ID.  We call this procedure a **node lookup**".
-    ///
     /// TODO:  1. Set up networking communication for find_node() **with non-empty bucket**.
     ///        2. Create complete routing table logic (return K closest nodes instead of indexed bucket)
-    pub fn find_node(&mut self, id: &Identifier, target: &Peer) /*-> impl Future<Output = bool> + '_*/
-    {
-        let msg = MessageInner {
-            session: rand::thread_rng().gen_range(0..=255),
-            body: MessageBody::FindNode([self.id, *id]),
-        };
-        // self.send_message(msg, target).await;
+    // pub fn find_node(&mut self, id: &Identifier) -> impl Future<Output = bool> + '_ {}
 
-        unimplemented!()
-    }
-
-    // TODO:
+    // TODO: Later
     // pub fn find_value() {}
 
-    // TODO:
-    // pub fn store(&mut self, key: Identifier, value: Vec<u8>) {}
+    // TODO: Later
+    // pub fn store(&mut self, value: Vec<u8>) {}
 
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
-        let (service_tx, service_rx) =
-            Service::spawn(self.local_record.clone(), self.table.clone()).await;
+        // TODO: if let this thing
+        let service_tx = Service::spawn(self.local_record, self.table.clone()).await;
         self.service_tx = Some(service_tx);
 
         if self.service_tx.is_none() {
@@ -121,13 +103,10 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{helper::PING_MESSAGE_SIZE, node};
-    use std::sync::LockResult;
+    use std::net::IpAddr;
+    use tokio::time::Duration;
 
     async fn make_nodes(n: u8) -> (Node, Vec<Node>) {
-        let ip_address = String::from("127.0.0.1").parse::<IpAddr>().unwrap();
-        let port_start = 9000_u16;
-
         let local_node = make_node(0).await;
         let mut remote_nodes = Vec::new();
 
@@ -157,7 +136,7 @@ mod tests {
     #[tokio::test]
     async fn add_redundant_node() {
         let (local_node, remote_nodes) = make_nodes(2).await;
-        let mut local_table = &mut local_node.table.lock().unwrap();
+        let local_table = &mut local_node.table.lock().unwrap();
         let remote_table = &remote_nodes[0].table.lock().unwrap();
 
         let result = local_table.add(remote_table.peer);
@@ -172,14 +151,14 @@ mod tests {
         let mut remote = make_node(1).await;
         local.table.lock().unwrap().add(remote.local_record);
 
-        local.start().await;
-        remote.start().await;
+        let _ = local.start().await;
+        let _ = remote.start().await;
         tokio::time::sleep(Duration::from_secs(1)).await;
         let ping = local.ping(remote.id);
         assert!(ping.await);
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let mut dummy = make_node(2).await;
+        let dummy = make_node(2).await;
         let ping = local.ping(dummy.id);
         assert!(!ping.await);
     }

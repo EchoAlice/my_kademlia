@@ -1,7 +1,7 @@
 use crate::helper::{Identifier, U256};
 use crate::node::Peer;
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 const BUCKET_SIZE: usize = 20; // "k"
 const MAX_BUCKETS: usize = 256;
@@ -13,13 +13,6 @@ pub struct Bucket {
 }
 
 impl Bucket {
-    fn new(limit: usize) -> Self {
-        Bucket {
-            map: HashMap::new(),
-            limit,
-        }
-    }
-
     fn add(&mut self, peer: Peer) -> Option<SocketAddr> {
         if self.map.len() <= BUCKET_SIZE {
             self.map.insert(peer.id, peer.socket_addr)
@@ -56,7 +49,7 @@ impl KbucketTable {
 
     pub fn get(&self, id: &Identifier) -> Option<&SocketAddr> {
         let bucket_index = self.xor_bucket_index(id);
-        let mut bucket = &self.buckets[bucket_index];
+        let bucket = &self.buckets[bucket_index];
         bucket.map.get(id)
     }
 
