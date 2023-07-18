@@ -13,7 +13,6 @@ use tokio::sync::{mpsc, watch};
 pub struct Service {
     pub local_record: Peer,
     pub socket: Arc<UdpSocket>,
-    node_tx: watch::Sender<bool>, // For communicating valid/invalid pong response
     node_rx: mpsc::Receiver<Message>,
     pub outbound_requests: HashMap<Identifier, Message>,
     pub table: Arc<Mutex<KbucketTable>>,
@@ -40,7 +39,6 @@ impl Service {
                 .await
                 .unwrap(),
             ),
-            node_tx,
             node_rx,
             outbound_requests: Default::default(),
             table,
@@ -109,7 +107,6 @@ impl Service {
                             } else {
                                 println!("Client responded with incorrect message type")
                             }
-
                         }
                         // TODO:
                         MessageBody::FindNode(requester_id) => {

@@ -5,12 +5,17 @@ use crate::service::{self, Service};
 
 use core::panic;
 use rand::Rng;
-use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
-use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::Duration;
+use std::{
+    collections::HashMap,
+    future::Future,
+    net::{IpAddr, SocketAddr},
+    sync::{Arc, Mutex},
+};
+use tokio::{
+    net::UdpSocket,
+    sync::{mpsc, oneshot},
+    time::Duration,
+};
 
 type ServiceTx<T> = Option<mpsc::Sender<T>>;
 
@@ -48,37 +53,32 @@ impl Node {
 
     // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
-    pub async fn ping(&mut self, id: Identifier) -> bool {
-        let peer = {
-            let table = &self.table.lock().unwrap();
-            let target = table.get(&id);
-            if target.is_none() {
-                return false;
-            }
-            let socket_addr = *target.unwrap();
-            Peer { id, socket_addr }
-        };
 
-        let (tx, rx) = oneshot::channel();
+    pub fn ping(&mut self, id: Identifier) -> impl Future<Output = bool> + '_ {
+        async move {
+            let peer = {
+                let table = &self.table.lock().unwrap();
+                let target = table.get(&id);
+                if target.is_none() {
+                    return false;
+                }
+                let socket_addr = *target.unwrap();
+                Peer { id, socket_addr }
+            };
 
-        let msg = Message {
-            target: peer,
-            inner: MessageInner {
-                session: (rand::thread_rng().gen_range(0..=255)),
-                body: (MessageBody::Ping(self.id, Some(tx))),
-            },
-        };
+            let (tx, rx) = oneshot::channel();
 
-        &self.service_tx.as_ref().unwrap().send(msg).await;
+            let msg = Message {
+                target: peer,
+                inner: MessageInner {
+                    session: (rand::thread_rng().gen_range(0..=255)),
+                    body: (MessageBody::Ping(self.id, Some(tx))),
+                },
+            };
 
-        // TODO: Implement pong verification logic
-        rx.await.unwrap()
-
-        // let service_rx = { self.service_rx.as_mut().unwrap() };
-        // service_rx.changed().await;
-        // *service_rx.borrow()
-
-        // true
+            &self.service_tx.as_ref().unwrap().send(msg).await;
+            rx.await.unwrap()
+        }
     }
 
     /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
@@ -114,42 +114,6 @@ impl Node {
         }
 
         Ok(())
-    }
-
-    // TODO: Transfer remaining functionality to service
-    async fn process(&mut self, message: MessageInner, sender_addr: &SocketAddr) {
-        match message.body {
-            MessageBody::Pong(datagram) => {
-                let node_id = &datagram[0..32];
-
-                let local_msg = {
-                    let target = self.outbound_requests.get(node_id);
-                    if target.is_none() {
-                        println!("No outbound requests for node");
-                    }
-
-                    let msg = target.unwrap();
-                    msg.clone()
-                };
-
-                // Verifies the pong message recieved matches the ping originally sent.  Sends message to high level ping()
-                if local_msg.session == message.session {
-                    println!("Successful ping. Removing k,v");
-                    // tx.send(true).await;
-
-                    // self.messages.lock().unwrap().push(message);
-
-                    self.outbound_requests.remove(node_id); // Warning: This removes all outbound reqs to an individual node.
-                } else {
-                    // tx.send(false).await;
-                    println!("Local and remote sessions don't match");
-                }
-            }
-            MessageBody::FindNode(datagram) => {
-                println!("FindNode datagram: {:?}", datagram)
-            }
-            _ => println!("Message was not pong or FindNode"),
-        }
     }
 }
 
@@ -218,32 +182,12 @@ mod tests {
         local.start().await;
         remote.start().await;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        local.ping(remote.id).await;
+        let result = local.ping(remote.id);
+        assert!(result.await);
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let mut dummy = make_node(2).await;
-        let result = local.ping(dummy.id).await;
-        // assert!(!result)
+        let result = local.ping(dummy.id);
+        assert!(!result.await);
     }
-    /*
-       #[tokio::test]
-       async fn find_node() {
-           // TODO:  try to make_node() not await
-           let mut local = make_node(0).await;
-           let mut local_copy = local.clone();
-           let mut remote = make_node(1).await;
-           let mut remote_copy = remote.clone();
-
-           // add remote peer to local node
-           local.table.lock().unwrap().add(remote.local_record);
-
-           let node_to_store = make_node(2).await;
-           remote.table.lock().unwrap().add(node_to_store.local_record);
-
-           // start local node
-           // start remote
-
-           // assert!(local.find_node(id).await, &vec![id]);
-       }
-    */
 }
