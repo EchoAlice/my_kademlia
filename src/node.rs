@@ -18,6 +18,8 @@ pub struct Peer {
     pub socket_addr: SocketAddr,
 }
 
+// TODO: Handle errors properly
+
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
 #[derive(Debug)]
@@ -88,15 +90,12 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
-        // TODO: if let this thing
-        let service_tx = Service::spawn(self.local_record, self.table.clone()).await;
-        self.service_tx = Some(service_tx);
-
-        if self.service_tx.is_none() {
-            return Err("Service tx wasn't created");
+        if let Some(service_tx) = Service::spawn(self.local_record, self.table.clone()).await {
+            self.service_tx = Some(service_tx);
+            Ok(())
+        } else {
+            Err("Service wasn't created")
         }
-
-        Ok(())
     }
 }
 

@@ -24,7 +24,7 @@ impl Service {
     pub async fn spawn(
         local_record: Peer,
         table: Arc<Mutex<KbucketTable>>,
-    ) -> mpsc::Sender<Message> {
+    ) -> Option<mpsc::Sender<Message>> {
         let (service_tx, node_rx) = mpsc::channel(32);
 
         let mut service = Service {
@@ -46,7 +46,7 @@ impl Service {
             service.start().await;
         });
 
-        service_tx
+        Some(service_tx)
     }
 
     // Node's main message processing loop
