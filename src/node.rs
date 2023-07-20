@@ -18,6 +18,15 @@ pub struct Peer {
     pub socket_addr: SocketAddr,
 }
 
+impl Peer {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&self.id);
+        out.extend_from_slice(&self.socket_addr.to_string().into_bytes());
+        out
+    }
+}
+
 // TODO: Handle errors properly
 
 // The main Kademlia client struct.
@@ -77,9 +86,35 @@ impl Node {
         }
     }
 
-    /// TODO:  1. Set up networking communication for find_node() **with non-empty bucket**.
-    ///        2. Create complete routing table logic (return K closest nodes instead of indexed bucket)
-    // pub fn find_node(&mut self, id: &Identifier) -> impl Future<Output = bool> + '_ {}
+    #[allow(warnings)]
+    pub fn find_node(&mut self, id: Identifier) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
+        async move {
+            let table = &self.table.lock().unwrap();
+            let target = table.get(&id);
+            if target.is_none() {
+                if let Some(target) = table.get_closest_node(&id) {
+                    let (tx, rx) = oneshot::channel();
+
+                    let msg = Message {
+                        target,
+                        inner: MessageInner {
+                            session: (rand::thread_rng().gen_range(0..=255)),
+                            body: (MessageBody::FindNode(self.id, id, Some(tx))),
+                        },
+                    };
+
+                    let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+                    Some(rx.await.unwrap())
+                } else {
+                    println!("No peer was returned");
+                    return None;
+                }
+            } else {
+                println!("Node was already in table");
+                return None;
+            }
+        }
+    }
 
     // TODO: Later
     // pub fn find_value() {}
@@ -105,6 +140,7 @@ mod tests {
     use std::net::IpAddr;
     use tokio::time::Duration;
 
+    // TODO: Move make_node and make_nodes to helper
     async fn make_nodes(n: u8) -> (Node, Vec<Node>) {
         let local_node = make_node(0).await;
         let mut remote_nodes = Vec::new();
@@ -160,5 +196,33 @@ mod tests {
         let dummy = make_node(2).await;
         let ping = local.ping(dummy.id);
         assert!(!ping.await);
+    }
+
+    // TODO:
+    #[allow(warnings)]
+    #[tokio::test]
+    async fn find_node() {
+        let mut local = make_node(0).await;
+        let mut remote = make_node(1).await;
+        local.table.lock().unwrap().add(remote.local_record);
+
+        let _ = local.start().await;
+        let _ = remote.start().await;
+
+        // Populate remote's table
+        let mut remote_table = remote.table.lock().unwrap();
+        let remote_table = {
+            for i in 2..10 {
+                let node = make_node(i).await;
+                remote_table.add(node.local_record);
+            }
+            remote_table
+        };
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let node_to_find = make_node(7).await.local_record.id;
+        let result = local.find_node(node_to_find).await;
+        println!("Result")
+        // Verify response from node
     }
 }

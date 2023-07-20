@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
+// TODO: Handle errors properly
+
 pub struct Service {
     pub local_record: Peer,
     pub socket: Arc<UdpSocket>,
@@ -17,7 +19,6 @@ pub struct Service {
     pub table: Arc<Mutex<KbucketTable>>,
 }
 
-// TODO: Handle errors properly
 impl Service {
     // Main service functionality
     // ---------------------------------------------------------------------------------------------------
@@ -60,8 +61,11 @@ impl Service {
                         MessageBody::Ping(_, _) => {
                             let _ = self.send_message(service_msg).await;
                         }
+                        MessageBody::FindNode(_, _, _) => {
+                            println!("FindNode request to server");
+                        }
                         _ => {
-                            println!("TODO: Implement other RPCs");
+                            println!("Service msg wasn't type ping or pong");
                         }
                     }
                 }
@@ -80,8 +84,13 @@ impl Service {
                             self.sessions_match(id, inbound_req);
                         }
                         // TODO:
-                        MessageBody::FindNode(_) => {
-                            println!("FindNode request received")
+                        MessageBody::FindNode(_, node_to_find, _) => {
+                            println!("FindNode request received");
+                            let mut bucket = Vec::new();
+                            // TODO: get_closest_nodes()
+                            let close_node = self.table.lock().unwrap().get_closest_node(node_to_find);
+                            bucket.push(close_node.unwrap());
+                            self.found_node(inbound_req.inner.session, target, bucket).await;
                         }
                         _ => {
                             unimplemented!()
@@ -106,8 +115,17 @@ impl Service {
         let _ = self.send_message(msg).await;
     }
 
-    // TODO:
-    // async fn found_node() {}
+    async fn found_node(&mut self, session: u8, target: Peer, closest_nodes: Vec<Peer>) {
+        let msg = Message {
+            target,
+            inner: MessageInner {
+                session,
+                body: (MessageBody::FoundNode(self.local_record.id, closest_nodes)),
+            },
+        };
+
+        let _ = self.send_message(msg).await;
+    }
 
     // Helper Functions
     // ---------------------------------------------------------------------------------------------------
@@ -115,6 +133,7 @@ impl Service {
         let dest = SocketAddr::new(msg.target.socket_addr.ip(), msg.target.socket_addr.port());
 
         let message_bytes = msg.inner.to_bytes();
+        println!("{:?}", message_bytes);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
 
         // TODO: Implement multiple pending messages per target

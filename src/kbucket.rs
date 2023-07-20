@@ -53,13 +53,31 @@ impl KbucketTable {
         bucket.map.get(id)
     }
 
+    // TODO: Figure out this algorithm.
     pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
+        if let Some(socket_addr) = self.get(id) {
+            return Some(Peer {
+                id: *id,
+                socket_addr: *socket_addr,
+            });
+        }
         let bucket_index = self.xor_bucket_index(id);
 
         for bucket in self.buckets.iter().skip(bucket_index) {
             if !bucket.map.is_empty() {
                 let k = bucket.map.keys().next().unwrap();
                 let (k, v) = bucket.map.get_key_value(k).unwrap();
+                return Some(Peer {
+                    id: *k,
+                    socket_addr: *v,
+                });
+            }
+        }
+        // Loops around table.  Not great...  Should I be oscilating between bucket[i+1] and bucket[i-1]?
+        for i in (0..bucket_index).rev() {
+            if !self.buckets[i].map.is_empty() {
+                let k = self.buckets[i].map.keys().next().unwrap();
+                let (k, v) = self.buckets[i].map.get_key_value(k).unwrap();
                 return Some(Peer {
                     id: *k,
                     socket_addr: *v,
