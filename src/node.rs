@@ -1,16 +1,70 @@
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody, MessageInner};
+use crate::node;
 use crate::service::Service;
 
 use rand::Rng;
+use std::net::{self, Ipv4Addr};
 use std::{
     collections::HashMap,
     future::Future,
-    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 use tokio::sync::{mpsc, oneshot};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SocketAddr {
+    pub addr: std::net::SocketAddr,
+}
+
+// TODO: Write tests!!!
+impl SocketAddr {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        match self.addr {
+            net::SocketAddr::V4(socket) => {
+                out.push(0);
+                out.extend(socket.ip().octets());
+                out.extend(socket.port().to_be_bytes());
+            }
+            net::SocketAddr::V6(socket) => {
+                out.push(1);
+                out.extend(socket.ip().octets());
+                out.extend(socket.port().to_be_bytes());
+            }
+        };
+        out
+    }
+    // We know the size of the datagram before it's called to be decoded
+    pub fn decode(data: &[u8]) -> Self {
+        if data.len() < 7 {
+            // TODO: Return error
+            panic!()
+        }
+
+        let addr = match data[0] {
+            0 => net::SocketAddr::new(
+                net::IpAddr::V4(Ipv4Addr::new(data[1], data[2], data[3], data[4])),
+                u16::from_be_bytes([data[5], data[6]]),
+            ),
+            1 => {
+                if data.len() < 19 {
+                    // TODO: Return error
+                    panic!()
+                }
+
+                let mut ip = [0; 16];
+                ip.copy_from_slice(data[1..17].as_ref());
+                net::SocketAddr::new(
+                    net::IpAddr::V6(net::Ipv6Addr::from(ip)),
+                    u16::from_be_bytes([data[9], data[10]]),
+                )
+            }
+        };
+        Self { addr }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Peer {
@@ -19,11 +73,36 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&self.id);
-        out.extend_from_slice(&self.socket_addr.to_string().into_bytes());
+        out.extend_from_slice(&self.socket_addr.encode());
         out
+    }
+    pub fn decode(data: &[u8]) -> Self {
+        if data.len() < 38 {
+            // TODO: Return error
+            panic!()
+        }
+
+        let diliniator = data[0];
+        let id = &data[1..33];
+        match diliniator {
+            0 => {
+                let addr = &data[33..39];
+                Peer {
+                    id: id.try_into().unwrap(),
+                    socket_addr: SocketAddr::decode(addr),
+                }
+            }
+            1 => {
+                let addr = &data[33..51];
+                Peer {
+                    id: id.try_into().unwrap(),
+                    socket_addr: SocketAddr::decode(addr),
+                }
+            }
+        }
     }
 }
 
@@ -68,7 +147,10 @@ impl Node {
                     return false;
                 }
                 let socket_addr = *target.unwrap();
-                Peer { id, socket_addr }
+                Peer {
+                    id,
+                    socket_addr: node::SocketAddr { addr: socket_addr },
+                }
             };
 
             let (tx, rx) = oneshot::channel();
@@ -104,7 +186,7 @@ impl Node {
                     };
 
                     let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-                    Some(rx.await.unwrap())
+                    rx.await.unwrap()
                 } else {
                     println!("No peer was returned");
                     return None;
@@ -160,8 +242,12 @@ mod tests {
         id[31] += index;
         let port = port_start + index as u16;
 
-        let socket_addr = SocketAddr::new(ip, port);
-        let peer = Peer { id, socket_addr };
+        let socket_addr = net::SocketAddr::new(ip, port);
+
+        let peer = Peer {
+            id,
+            socket_addr: node::SocketAddr { addr: socket_addr },
+        };
 
         Node::new(peer).await
     }
@@ -214,6 +300,11 @@ mod tests {
         let remote_table = {
             for i in 2..10 {
                 let node = make_node(i).await;
+                println!("IP length: {:?}", node.local_record.socket_addr.addr.ip());
+                println!(
+                    "Port length: {:?}",
+                    node.local_record.socket_addr.addr.port()
+                );
                 remote_table.add(node.local_record);
             }
             remote_table

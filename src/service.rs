@@ -1,6 +1,7 @@
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{construct_msg, Message, MessageBody, MessageInner};
+use crate::node;
 use crate::node::Peer;
 use std::collections::HashMap;
 use std::io::Result;
@@ -32,8 +33,8 @@ impl Service {
             local_record,
             socket: Arc::new(
                 UdpSocket::bind(SocketAddr::new(
-                    local_record.socket_addr.ip(),
-                    local_record.socket_addr.port(),
+                    local_record.socket_addr.addr.ip(),
+                    local_record.socket_addr.addr.port(),
                 ))
                 .await
                 .unwrap(),
@@ -62,18 +63,19 @@ impl Service {
                             let _ = self.send_message(service_msg).await;
                         }
                         MessageBody::FindNode(_, _, _) => {
-                            println!("FindNode request to server");
+                            let _ = self.send_message(service_msg).await;
                         }
                         _ => {
-                            println!("Service msg wasn't type ping or pong");
+                            println!("Service msg wasn't a request message");
                         }
                     }
                 }
                 // External Message Processing:
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
-                    let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
-                    let target = Peer {id, socket_addr};
-                    let inbound_req = construct_msg(datagram, target);
+                    let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");  // This should be at a lower level
+                    let target = Peer {id, socket_addr: node::SocketAddr { addr: socket_addr }};
+                    println!("Datagram inbound: {:?}", datagram);
+                    let inbound_req = construct_msg(&datagram, target);
 
                     match &inbound_req.inner.body {
                         MessageBody::Ping(_, None) => {
@@ -81,16 +83,17 @@ impl Service {
                             self.pong(inbound_req.inner.session, target).await;
                         }
                         MessageBody::Pong(_) => {
-                            self.sessions_match(id, inbound_req);
+                            self.process_response(id, inbound_req);
                         }
-                        // TODO:
                         MessageBody::FindNode(_, node_to_find, _) => {
-                            println!("FindNode request received");
                             let mut bucket = Vec::new();
                             // TODO: get_closest_nodes()
-                            let close_node = self.table.lock().unwrap().get_closest_node(node_to_find);
+                            let close_node = self.table.lock().unwrap().get_closest_node(&node_to_find);
                             bucket.push(close_node.unwrap());
                             self.found_node(inbound_req.inner.session, target, bucket).await;
+                        }
+                        MessageBody::FoundNode(_, _, _) => {
+                            self.process_response(id, inbound_req);
                         }
                         _ => {
                             unimplemented!()
@@ -120,7 +123,11 @@ impl Service {
             target,
             inner: MessageInner {
                 session,
-                body: (MessageBody::FoundNode(self.local_record.id, closest_nodes)),
+                body: (MessageBody::FoundNode(
+                    self.local_record.id,
+                    closest_nodes.len() as u8,
+                    closest_nodes,
+                )),
             },
         };
 
@@ -130,10 +137,13 @@ impl Service {
     // Helper Functions
     // ---------------------------------------------------------------------------------------------------
     async fn send_message(&mut self, msg: Message) -> Result<()> {
-        let dest = SocketAddr::new(msg.target.socket_addr.ip(), msg.target.socket_addr.port());
+        let dest = SocketAddr::new(
+            msg.target.socket_addr.addr.ip(),
+            msg.target.socket_addr.addr.port(),
+        );
 
-        let message_bytes = msg.inner.to_bytes();
-        println!("{:?}", message_bytes);
+        let message_bytes = msg.inner.encode();
+        println!("Message bytes: {:?}", message_bytes);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
 
         // TODO: Implement multiple pending messages per target
@@ -143,21 +153,30 @@ impl Service {
     }
 
     // Verifies the pong message received matches the ping originally sent and sends message to high level ping()
-    fn sessions_match(&mut self, id: Identifier, inbound_req: Message) -> bool {
-        let local_msg = self.outbound_requests.remove(&id).unwrap(); // Warning: This removes all outbound reqs to an individual node.
-        if let MessageBody::Ping(_, tx) = local_msg.inner.body {
-            if local_msg.inner.session == inbound_req.inner.session {
-                println!("Successful ping. Removing k,v");
-                let _ = tx.unwrap().send(true);
-                true
-            } else {
-                println!("Local and remote sessions don't match");
-                let _ = tx.unwrap().send(false);
-                false
+    fn process_response(&mut self, id: Identifier, inbound_resp: Message) {
+        // Warning: This removes all outbound reqs to an individual node.
+        let local_msg = self.outbound_requests.remove(&id).unwrap();
+
+        match inbound_resp.inner.body {
+            MessageBody::Pong(_) => {
+                if let MessageBody::Ping(_, tx) = local_msg.inner.body {
+                    if local_msg.inner.session == inbound_resp.inner.session {
+                        let _ = tx.unwrap().send(true);
+                    } else {
+                        let _ = tx.unwrap().send(false);
+                    }
+                }
             }
-        } else {
-            println!("Client responded with incorrect message type");
-            false
+            MessageBody::FoundNode(_, _, closest_peers) => {
+                if let MessageBody::FindNode(_, _, tx) = local_msg.inner.body {
+                    if local_msg.inner.session == inbound_resp.inner.session {
+                        let _ = tx.unwrap().send(Some(closest_peers));
+                    } else {
+                        let _ = tx.unwrap().send(None);
+                    }
+                }
+            }
+            _ => println!("Not a response message type."),
         }
     }
 }
