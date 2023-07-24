@@ -9,12 +9,13 @@ pub enum DecoderError {
     Malformed,
 }
 
+#[derive(Debug)]
 pub struct Message {
     pub target: Peer,
     pub inner: MessageInner,
 }
 
-// Get rid of this?
+// Get rid of MessageInner
 #[derive(Debug)]
 pub struct MessageInner {
     pub session: u8,
@@ -89,24 +90,24 @@ pub fn decode(data: &[u8]) -> Result<MessageInner, DecoderError> {
     let session = data[1];
     let id: Identifier = data[2..34].try_into().expect("Invalid slice length");
     let body = data[34..].as_ref();
-
-    let msg = match &msg_type {
-        1 => MessageInner {
+    println!("Msg type: {}", msg_type);
+    let msg = match msg_type {
+        b'1' => MessageInner {
             session,
             body: MessageBody::Ping(id, None),
         },
-        2 => MessageInner {
+        b'2' => MessageInner {
             session,
             body: MessageBody::Pong(id),
         },
-        3 => {
+        b'3' => {
             let target = body[0..32].try_into().expect("Invalid slice length");
             MessageInner {
                 session,
                 body: MessageBody::FindNode(id, target, None),
             }
         }
-        4 => {
+        b'4' => {
             let total = body[0];
             if body.len() != 1 + PEER_LENGTH * total as usize {
                 return Err(DecoderError::Malformed);
@@ -114,7 +115,7 @@ pub fn decode(data: &[u8]) -> Result<MessageInner, DecoderError> {
 
             let mut peers = Vec::new();
             let mut dil_index = 1;
-            let mut peer_data = &body[dil_index..dil_index + 32];
+            let peer_data = &body[dil_index..dil_index + 32];
             for _ in 0..total {
                 let peer = Peer::decode(peer_data);
                 peers.push(peer);
@@ -123,7 +124,10 @@ pub fn decode(data: &[u8]) -> Result<MessageInner, DecoderError> {
                     0 => {
                         dil_index += 38;
                     }
-                    1 => dil_index += 50,
+                    1 => {
+                        dil_index += 50;
+                    }
+                    _ => panic!(),
                 }
             }
             MessageInner {
@@ -131,15 +135,12 @@ pub fn decode(data: &[u8]) -> Result<MessageInner, DecoderError> {
                 body: MessageBody::FoundNode(id, total, peers),
             }
         }
-        _ => {
-            panic!("Message wasn't legitimate");
-        }
+        _ => return Err(DecoderError::Malformed),
     };
     Ok(msg)
 }
 
 pub fn construct_msg(data: &[u8], target: Peer) -> Message {
-    let session = data[1];
     if let Ok(inner) = decode(data) {
         let msg = Message { target, inner };
         return msg;

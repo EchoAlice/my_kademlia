@@ -72,11 +72,10 @@ impl Service {
                 }
                 // External Message Processing:
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
-                    let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");  // This should be at a lower level
+                    let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
                     let target = Peer {id, socket_addr: node::SocketAddr { addr: socket_addr }};
-                    println!("Datagram inbound: {:?}", datagram);
                     let inbound_req = construct_msg(&datagram, target);
-
+                    println!("Inbound req: {:?}", inbound_req);
                     match &inbound_req.inner.body {
                         MessageBody::Ping(_, None) => {
                             self.table.lock().unwrap().add(target);
@@ -88,9 +87,24 @@ impl Service {
                         MessageBody::FindNode(_, node_to_find, _) => {
                             let mut bucket = Vec::new();
                             // TODO: get_closest_nodes()
-                            let close_node = self.table.lock().unwrap().get_closest_node(&node_to_find);
+
+                            // TODO: Why is "get_closest_node()" not being called?
+                            println!("Get closest node");
+
+                            // NEW
+                            let table = &self.table.lock().unwrap();
+                            let close_node = table.get_closest_node(&node_to_find);
+                            if close_node.is_none() {
+                                println!("No node found");
+                                return;
+                            }
                             bucket.push(close_node.unwrap());
-                            self.found_node(inbound_req.inner.session, target, bucket).await;
+                            // self.found_node(inbound_req.inner.session, target, bucket).await;
+
+                            // OLD
+                            // let close_node = self.table.lock().unwrap().get_closest_node(&node_to_find);
+                            // bucket.push(close_node.unwrap());
+                            // self.found_node(inbound_req.inner.session, target, bucket).await;
                         }
                         MessageBody::FoundNode(_, _, _) => {
                             self.process_response(id, inbound_req);
@@ -148,13 +162,15 @@ impl Service {
 
         // TODO: Implement multiple pending messages per target
         self.outbound_requests.insert(msg.target.id, msg);
-
         Ok(())
     }
 
     // Verifies the pong message received matches the ping originally sent and sends message to high level ping()
     fn process_response(&mut self, id: Identifier, inbound_resp: Message) {
         // Warning: This removes all outbound reqs to an individual node.
+        println!("Local node {:?}", self.local_record.id[31]);
+        println!("req id: {:?}", id);
+        println!("Outbound reqs {:?}", self.outbound_requests);
         let local_msg = self.outbound_requests.remove(&id).unwrap();
 
         match inbound_resp.inner.body {

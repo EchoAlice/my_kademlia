@@ -1,7 +1,6 @@
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody, MessageInner};
-use crate::node;
 use crate::service::Service;
 
 use rand::Rng;
@@ -61,6 +60,7 @@ impl SocketAddr {
                     u16::from_be_bytes([data[9], data[10]]),
                 )
             }
+            _ => panic!(),
         };
         Self { addr }
     }
@@ -102,6 +102,7 @@ impl Peer {
                     socket_addr: SocketAddr::decode(addr),
                 }
             }
+            _ => panic!(),
         }
     }
 }
@@ -147,10 +148,7 @@ impl Node {
                     return false;
                 }
                 let socket_addr = *target.unwrap();
-                Peer {
-                    id,
-                    socket_addr: node::SocketAddr { addr: socket_addr },
-                }
+                Peer { id, socket_addr }
             };
 
             let (tx, rx) = oneshot::channel();
@@ -219,6 +217,7 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node;
     use std::net::IpAddr;
     use tokio::time::Duration;
 
@@ -300,11 +299,6 @@ mod tests {
         let remote_table = {
             for i in 2..10 {
                 let node = make_node(i).await;
-                println!("IP length: {:?}", node.local_record.socket_addr.addr.ip());
-                println!(
-                    "Port length: {:?}",
-                    node.local_record.socket_addr.addr.port()
-                );
                 remote_table.add(node.local_record);
             }
             remote_table
