@@ -2,7 +2,9 @@ use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody, MessageInner};
 use crate::service::Service;
-
+use bytes::{BufMut, BytesMut};
+use fastrlp::DecodeError;
+use fastrlp_derive::{Decodable, Encodable};
 use rand::Rng;
 use std::net::{self, Ipv4Addr};
 use std::{
@@ -18,8 +20,8 @@ pub struct SocketAddr {
 }
 
 // TODO: Write tests!!!
-impl SocketAddr {
-    pub fn encode(&self) -> Vec<u8> {
+impl fastrlp::Encodable for SocketAddr {
+    fn encode(&self, out: &mut dyn BufMut) {
         let mut out = Vec::new();
         match self.addr {
             net::SocketAddr::V4(socket) => {
@@ -33,10 +35,31 @@ impl SocketAddr {
                 out.extend(socket.port().to_be_bytes());
             }
         };
-        out
     }
+    // TODO: Delete?  Docs say this is a "provided method"
+    fn length(&self) -> usize {
+        match self.addr {
+            net::SocketAddr::V4(_) => {
+                // Discriminator + ipv4 + port
+                return 1 + 4 + 2;
+            }
+            net::SocketAddr::V6(_) => {
+                // Discriminator + ipv4 + port
+                return 1 + 16 + 2;
+            }
+        }
+    }
+}
+
+pub fn encoded<T: fastrlp::Encodable>(t: &T) -> BytesMut {
+    let mut out = BytesMut::new();
+    t.encode(&mut out);
+    out
+}
+
+impl fastrlp::Decodable for SocketAddr {
     // We know the size of the datagram before it's called to be decoded
-    pub fn decode(data: &[u8]) -> Self {
+    fn decode(data: &mut &[u8]) -> Result<Self, DecodeError> {
         if data.len() < 7 {
             // TODO: Return error
             panic!()
@@ -62,50 +85,50 @@ impl SocketAddr {
             }
             _ => panic!(),
         };
-        Self { addr }
+        Ok(Self { addr })
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encodable, Decodable)]
 pub struct Peer {
     pub id: Identifier,
     pub socket_addr: SocketAddr,
 }
 
-impl Peer {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&self.id);
-        out.extend_from_slice(&self.socket_addr.encode());
-        out
-    }
-    pub fn decode(data: &[u8]) -> Self {
-        if data.len() < 38 {
-            // TODO: Return error
-            panic!()
-        }
+// impl Peer {
+//     pub fn encode(&self) -> Vec<u8> {
+//         let mut out = Vec::new();
+//         out.extend_from_slice(&self.id);
+//         out.extend_from_slice(encoded(&self.socket_addr).as_ref());
+//         out
+//     }
+//     pub fn decode(data: &[u8]) -> Self {
+//         if data.len() < 38 {
+//             // TODO: Return error
+//             panic!()
+//         }
 
-        let diliniator = data[0];
-        let id = &data[1..33];
-        match diliniator {
-            0 => {
-                let addr = &data[33..39];
-                Peer {
-                    id: id.try_into().unwrap(),
-                    socket_addr: SocketAddr::decode(addr),
-                }
-            }
-            1 => {
-                let addr = &data[33..51];
-                Peer {
-                    id: id.try_into().unwrap(),
-                    socket_addr: SocketAddr::decode(addr),
-                }
-            }
-            _ => panic!(),
-        }
-    }
-}
+//         let diliniator = data[0];
+//         let id = &data[1..33];
+//         match diliniator {
+//             0 => {
+//                 let addr = &data[33..39];
+//                 Peer {
+//                     id: id.try_into().unwrap(),
+//                     socket_addr: SocketAddr::decode(addr),
+//                 }
+//             }
+//             1 => {
+//                 let addr = &data[33..51];
+//                 Peer {
+//                     id: id.try_into().unwrap(),
+//                     socket_addr: SocketAddr::decode(addr),
+//                 }
+//             }
+//             _ => panic!(),
+//         }
+//     }
+// }
 
 // TODO: Handle errors properly
 
