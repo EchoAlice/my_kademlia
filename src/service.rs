@@ -1,7 +1,7 @@
+use crate::helper;
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{construct_msg, Message, MessageBody, MessageInner};
-use crate::node;
 use crate::node::Peer;
 use std::collections::HashMap;
 use std::io::Result;
@@ -73,8 +73,8 @@ impl Service {
                 // External Message Processing:
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
-                    let target = Peer {id, socket_addr: node::SocketAddr { addr: socket_addr }};
-                    let inbound_req = construct_msg(&datagram, target);
+                    let target = Peer {id, socket_addr: helper::SocketAddr { addr: socket_addr }};
+                    let inbound_req = construct_msg(&mut datagram.as_ref(), target);
                     println!("Inbound req: {:?}", inbound_req);
                     match &inbound_req.inner.body {
                         MessageBody::Ping(_, None) => {
@@ -156,7 +156,7 @@ impl Service {
             msg.target.socket_addr.addr.port(),
         );
 
-        let message_bytes = msg.inner.encode();
+        let message_bytes = helper::encoded(&msg);
         println!("Message bytes: {:?}", message_bytes);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
 

@@ -92,9 +92,8 @@ impl fastrlp::Decodable for SocketAddr {
 
 #[cfg(test)]
 mod test {
-    use fastrlp::Decodable;
-
     use super::*;
+    use fastrlp::Decodable;
     use std::net::IpAddr;
     #[test]
     fn socket_addr_serialization() {
@@ -105,9 +104,7 @@ mod test {
 
         let mut out = BytesMut::new();
         socket_addr.encode(&mut out);
-        println!("Out: {:?} ", out);
-        println!("\n");
         let result = SocketAddr::decode(&mut out.to_vec().as_slice());
-        println!("Result: {:?} ", result);
+        assert!(result.is_ok());
     }
 }
