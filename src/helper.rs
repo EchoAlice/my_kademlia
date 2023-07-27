@@ -4,7 +4,7 @@
 #![allow(clippy::assign_op_pattern)]
 
 use alloy_rlp::{encode_list, Decodable, Encodable, Error};
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use std::net;
 use uint::*;
 pub const PING_MESSAGE_SIZE: usize = 1024;
@@ -40,7 +40,7 @@ impl Encodable for SocketAddr {
                 let port = socket.port();
                 let mut enc: [&dyn Encodable; 3] = [b""; 3];
 
-                enc[0] = &0_u8;
+                enc[0] = &1_u8;
                 enc[1] = &ip;
                 enc[2] = &port;
 
@@ -76,16 +76,18 @@ impl Decodable for SocketAddr {
                 net::SocketAddr::new(ip.into(), port)
             }
             1 => {
-                if data.len() < 19 {
-                    // TODO: Return error
-                    panic!()
-                }
+                // if data.len() < 19 {
+                //     // TODO: Return error
+                //     panic!()
+                // }
                 let ip = stream.get_next::<[u8; 16]>()?.unwrap();
                 let port = stream.get_next::<u16>()?.unwrap();
                 net::SocketAddr::new(ip.into(), port)
             }
             _ => panic!(),
         };
+
+        data.advance(8);
         Ok(Self { addr })
     }
 }
@@ -105,6 +107,6 @@ mod test {
         let mut out = BytesMut::new();
         socket_addr.encode(&mut out);
         let result = SocketAddr::decode(&mut out.to_vec().as_slice());
-        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), socket_addr);
     }
 }

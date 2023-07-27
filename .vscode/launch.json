@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'example'",
+            "cargo": {
+                "args": [
+                    "build",
+                ],
+            },
+            "args": [],
+            "program": "${workspaceFolder}/target/debug/example",
+            "cwd": "${workspaceFolder}/target/debug/",
+            "sourceLanguages": [
+                "rust"
+            ]
+        }
+    ]
+}
