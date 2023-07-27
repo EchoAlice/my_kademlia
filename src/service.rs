@@ -74,7 +74,7 @@ impl Service {
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
                     let target = Peer {id, socket_addr: helper::SocketAddr { addr: socket_addr }};
-                    // TODO:    MessageBody::decode()?
+                    // TODO:    MessageBody::decode()
                     let inbound_req = construct_msg(&mut datagram.as_ref(), target);
                     println!("Inbound req: {:?}", inbound_req);
                     match &inbound_req.inner.body {

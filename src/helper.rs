@@ -33,7 +33,7 @@ impl Encodable for SocketAddr {
                 enc[1] = &ip;
                 enc[2] = &port;
 
-                encode_list::<dyn Encodable, _>(&enc, out);
+                encode_list::<_, dyn Encodable>(&enc, out);
             }
             net::SocketAddr::V6(socket) => {
                 let ip = socket.ip().octets();
@@ -44,7 +44,7 @@ impl Encodable for SocketAddr {
                 enc[1] = &ip;
                 enc[2] = &port;
 
-                encode_list::<dyn Encodable, _>(&enc, out);
+                encode_list::<_, dyn Encodable>(&enc, out);
             }
         };
     }

@@ -47,31 +47,32 @@ impl Encodable for MessageBody {
         match self {
             Self::Ping(id, _) => {
                 let mut enc: [&dyn Encodable; 2] = [b""; 2];
-                // enc[0] = &0_u8;
-                // enc[1] = id;
-                encode_list::<dyn Encodable, _>(enc, out);
+                enc[0] = &0_u8;
+                enc[1] = id;
+                encode_list::<_, dyn Encodable>(&enc, out);
             }
-            _ => unimplemented!(), // Self::Pong(id) => {
-                                   //     let mut enc: [&dyn Encodable; 2] = [b""; 2];
-                                   //     enc[0] = &1_u8;
-                                   //     enc[1] = &id;
-                                   //     encode_list::<&dyn Encodable, _>(&enc, out);
-                                   // }
-                                   // Self::FindNode(req_id, node_to_find, _) => {
-                                   //     let mut enc: [&dyn Encodable; 3] = [b""; 3];
-                                   //     enc[0] = &2_u8;
-                                   //     enc[1] = &req_id;
-                                   //     enc[2] = &node_to_find;
-                                   //     encode_list::<&dyn Encodable, _>(&enc, out);
-                                   // }
-                                   // Self::FoundNode(req_id, total_nodes, closest_nodes) => {
-                                   //     let mut enc: [&dyn Encodable; 4] = [b""; 4];
-                                   //     enc[0] = &3_u8;
-                                   //     enc[1] = &req_id;
-                                   //     enc[2] = &total_nodes;
-                                   //     enc[3] = closest_nodes;
-                                   //     encode_list::<&dyn Encodable, _>(&enc, out);
-                                   // }
+            // _ => unimplemented!(),
+            Self::Pong(id) => {
+                let mut enc: [&dyn Encodable; 2] = [b""; 2];
+                enc[0] = &1_u8;
+                enc[1] = &id;
+                encode_list::<_, dyn Encodable>(&enc, out);
+            }
+            Self::FindNode(req_id, node_to_find, _) => {
+                let mut enc: [&dyn Encodable; 3] = [b""; 3];
+                enc[0] = &2_u8;
+                enc[1] = &req_id;
+                enc[2] = &node_to_find;
+                encode_list::<_, dyn Encodable>(&enc, out);
+            }
+            Self::FoundNode(req_id, total_nodes, closest_nodes) => {
+                let mut enc: [&dyn Encodable; 4] = [b""; 4];
+                enc[0] = &3_u8;
+                enc[1] = &req_id;
+                enc[2] = &total_nodes;
+                enc[3] = closest_nodes;
+                encode_list::<_, dyn Encodable>(&enc, out);
+            }
         }
     }
 }
