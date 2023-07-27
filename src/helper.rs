@@ -3,14 +3,14 @@
 // to address further
 #![allow(clippy::assign_op_pattern)]
 
-// use tokio::sync::mpsc;
+use alloy_rlp::{encode_list, Decodable, Encodable, Error};
 use bytes::{BufMut, BytesMut};
-use fastrlp::{encode_list, DecodeError, Encodable};
 use std::net;
 use uint::*;
 pub const PING_MESSAGE_SIZE: usize = 1024;
 pub type Identifier = [u8; 32];
 
+//  TODO: impl "from" for Identifier
 construct_uint! {
     /// 256-bit unsigned integer (little endian).
     pub struct U256(4);
@@ -21,7 +21,7 @@ pub struct SocketAddr {
     pub addr: net::SocketAddr,
 }
 
-impl fastrlp::Encodable for SocketAddr {
+impl Encodable for SocketAddr {
     fn encode(&self, out: &mut dyn BufMut) {
         match self.addr {
             net::SocketAddr::V4(socket) => {
@@ -50,7 +50,7 @@ impl fastrlp::Encodable for SocketAddr {
     }
 }
 
-pub fn encoded<T: fastrlp::Encodable>(t: &T) -> BytesMut {
+pub fn encoded<T: Encodable>(t: &T) -> BytesMut {
     let mut out = BytesMut::new();
     t.encode(&mut out);
 
@@ -58,15 +58,15 @@ pub fn encoded<T: fastrlp::Encodable>(t: &T) -> BytesMut {
     out
 }
 
-impl fastrlp::Decodable for SocketAddr {
+impl Decodable for SocketAddr {
     // We know the size of the datagram before it's called to be decoded
-    fn decode(data: &mut &[u8]) -> Result<Self, DecodeError> {
+    fn decode(data: &mut &[u8]) -> Result<Self, Error> {
         if data.len() < 7 {
             // TODO: Return error
             panic!()
         }
 
-        let mut stream = fastrlp::Rlp::new(data)?;
+        let mut stream = alloy_rlp::Rlp::new(data)?;
         let typ = stream.get_next::<u8>()?.unwrap();
 
         let addr = match typ {
@@ -92,9 +92,8 @@ impl fastrlp::Decodable for SocketAddr {
 
 #[cfg(test)]
 mod test {
-    use fastrlp::Decodable;
-
     use super::*;
+    use alloy_rlp::Decodable;
     use std::net::IpAddr;
     #[test]
     fn socket_addr_serialization() {
@@ -105,9 +104,7 @@ mod test {
 
         let mut out = BytesMut::new();
         socket_addr.encode(&mut out);
-        println!("Out: {:?} ", out);
-        println!("\n");
         let result = SocketAddr::decode(&mut out.to_vec().as_slice());
-        println!("Result: {:?} ", result);
+        assert!(result.is_ok());
     }
 }

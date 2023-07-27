@@ -1,12 +1,9 @@
-use crate::helper::Identifier;
+use crate::helper::{Identifier, SocketAddr};
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody, MessageInner};
 use crate::service::Service;
-use bytes::{BufMut, BytesMut};
-use fastrlp::DecodeError;
-use fastrlp_derive::{Decodable, Encodable};
+use alloy_rlp::{RlpDecodable, RlpEncodable};
 use rand::Rng;
-use std::net::{self, Ipv4Addr};
 use std::{
     collections::HashMap,
     future::Future,
@@ -14,121 +11,11 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SocketAddr {
-    pub addr: std::net::SocketAddr,
-}
-
-// TODO: Write tests!!!
-impl fastrlp::Encodable for SocketAddr {
-    fn encode(&self, out: &mut dyn BufMut) {
-        let mut out = Vec::new();
-        match self.addr {
-            net::SocketAddr::V4(socket) => {
-                out.push(0);
-                out.extend(socket.ip().octets());
-                out.extend(socket.port().to_be_bytes());
-            }
-            net::SocketAddr::V6(socket) => {
-                out.push(1);
-                out.extend(socket.ip().octets());
-                out.extend(socket.port().to_be_bytes());
-            }
-        };
-    }
-    // TODO: Delete?  Docs say this is a "provided method"
-    fn length(&self) -> usize {
-        match self.addr {
-            net::SocketAddr::V4(_) => {
-                // Discriminator + ipv4 + port
-                return 1 + 4 + 2;
-            }
-            net::SocketAddr::V6(_) => {
-                // Discriminator + ipv4 + port
-                return 1 + 16 + 2;
-            }
-        }
-    }
-}
-
-pub fn encoded<T: fastrlp::Encodable>(t: &T) -> BytesMut {
-    let mut out = BytesMut::new();
-    t.encode(&mut out);
-    out
-}
-
-impl fastrlp::Decodable for SocketAddr {
-    // We know the size of the datagram before it's called to be decoded
-    fn decode(data: &mut &[u8]) -> Result<Self, DecodeError> {
-        if data.len() < 7 {
-            // TODO: Return error
-            panic!()
-        }
-
-        let addr = match data[0] {
-            0 => net::SocketAddr::new(
-                net::IpAddr::V4(Ipv4Addr::new(data[1], data[2], data[3], data[4])),
-                u16::from_be_bytes([data[5], data[6]]),
-            ),
-            1 => {
-                if data.len() < 19 {
-                    // TODO: Return error
-                    panic!()
-                }
-
-                let mut ip = [0; 16];
-                ip.copy_from_slice(data[1..17].as_ref());
-                net::SocketAddr::new(
-                    net::IpAddr::V6(net::Ipv6Addr::from(ip)),
-                    u16::from_be_bytes([data[9], data[10]]),
-                )
-            }
-            _ => panic!(),
-        };
-        Ok(Self { addr })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Encodable, Decodable)]
+#[derive(Clone, Copy, Debug, PartialEq, RlpEncodable, RlpDecodable)]
 pub struct Peer {
     pub id: Identifier,
     pub socket_addr: SocketAddr,
 }
-
-// impl Peer {
-//     pub fn encode(&self) -> Vec<u8> {
-//         let mut out = Vec::new();
-//         out.extend_from_slice(&self.id);
-//         out.extend_from_slice(encoded(&self.socket_addr).as_ref());
-//         out
-//     }
-//     pub fn decode(data: &[u8]) -> Self {
-//         if data.len() < 38 {
-//             // TODO: Return error
-//             panic!()
-//         }
-
-//         let diliniator = data[0];
-//         let id = &data[1..33];
-//         match diliniator {
-//             0 => {
-//                 let addr = &data[33..39];
-//                 Peer {
-//                     id: id.try_into().unwrap(),
-//                     socket_addr: SocketAddr::decode(addr),
-//                 }
-//             }
-//             1 => {
-//                 let addr = &data[33..51];
-//                 Peer {
-//                     id: id.try_into().unwrap(),
-//                     socket_addr: SocketAddr::decode(addr),
-//                 }
-//             }
-//             _ => panic!(),
-//         }
-//     }
-// }
 
 // TODO: Handle errors properly
 
@@ -241,6 +128,7 @@ impl Node {
 mod tests {
     use super::*;
     use crate::node;
+    use std::net;
     use std::net::IpAddr;
     use tokio::time::Duration;
 
@@ -330,7 +218,8 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let node_to_find = make_node(7).await.local_record.id;
         let result = local.find_node(node_to_find).await;
-        println!("Result")
+        println!("Result");
+        assert!(true);
         // Verify response from node
     }
 }

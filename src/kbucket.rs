@@ -1,5 +1,4 @@
-use crate::helper::{Identifier, U256};
-use crate::node;
+use crate::helper::{Identifier, SocketAddr, U256};
 use crate::node::Peer;
 use std::collections::HashMap;
 
@@ -8,12 +7,12 @@ const MAX_BUCKETS: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bucket {
-    pub map: HashMap<Identifier, node::SocketAddr>,
+    pub map: HashMap<Identifier, SocketAddr>,
     pub limit: usize,
 }
 
 impl Bucket {
-    fn add(&mut self, peer: Peer) -> Option<node::SocketAddr> {
+    fn add(&mut self, peer: Peer) -> Option<SocketAddr> {
         // let
         if self.map.len() <= BUCKET_SIZE {
             self.map.insert(peer.id, peer.socket_addr)
@@ -48,7 +47,7 @@ impl KbucketTable {
         }
     }
 
-    pub fn get(&self, id: &Identifier) -> Option<&node::SocketAddr> {
+    pub fn get(&self, id: &Identifier) -> Option<&SocketAddr> {
         let bucket_index = self.xor_bucket_index(id);
         let bucket = &self.buckets[bucket_index];
         bucket.map.get(id)
@@ -93,7 +92,7 @@ impl KbucketTable {
     // TODO: Create complete routing table logic (return K closest nodes instead of indexed bucket)
     // pub fn get_closest_nodes() {}
 
-    pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], node::SocketAddr>> {
+    pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
         let bucket_index = self.xor_bucket_index(id);
         if self.buckets[bucket_index].map.is_empty() {
             println!("BUCKET IS EMPTY");

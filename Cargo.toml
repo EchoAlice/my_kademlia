@@ -6,8 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
 bytes = { version = "1", default-features = false }
-fastrlp = "0.3.1"
+alloy-rlp = {version = "0.3.2", features = ["derive"]}
 fastrlp-derive = "0.2.0"
 rand = "0.8"
 sha2 = "0.10.6"
