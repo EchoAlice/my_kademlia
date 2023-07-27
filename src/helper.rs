@@ -4,7 +4,7 @@
 #![allow(clippy::assign_op_pattern)]
 
 use alloy_rlp::{encode_list, Decodable, Encodable, Error};
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use std::net;
 use uint::*;
 pub const PING_MESSAGE_SIZE: usize = 1024;
@@ -61,33 +61,18 @@ pub fn encoded<T: Encodable>(t: &T) -> BytesMut {
 impl Decodable for SocketAddr {
     // We know the size of the datagram before it's called to be decoded
     fn decode(data: &mut &[u8]) -> Result<Self, Error> {
-        if data.len() < 7 {
-            // TODO: Return error
-            panic!()
-        }
+        let mut payload = alloy_rlp::Header::decode_bytes(data, true)?;
 
-        let mut stream = alloy_rlp::Rlp::new(data)?;
-        let typ = stream.get_next::<u8>()?.unwrap();
-
+        let typ = u8::decode(&mut payload)?;
         let addr = match typ {
             0 => {
-                let ip = stream.get_next::<[u8; 4]>()?.unwrap();
-                let port = stream.get_next::<u16>()?.unwrap();
+                let ip = <[u8; 4]>::decode(&mut payload)?;
+                let port = u16::decode(&mut payload)?;
                 net::SocketAddr::new(ip.into(), port)
             }
-            1 => {
-                // if data.len() < 19 {
-                //     // TODO: Return error
-                //     panic!()
-                // }
-                let ip = stream.get_next::<[u8; 16]>()?.unwrap();
-                let port = stream.get_next::<u16>()?.unwrap();
-                net::SocketAddr::new(ip.into(), port)
-            }
-            _ => panic!(),
+            _ => unimplemented!(),
         };
 
-        data.advance(8);
         Ok(Self { addr })
     }
 }
@@ -97,6 +82,7 @@ mod test {
     use super::*;
     use alloy_rlp::Decodable;
     use std::net::IpAddr;
+
     #[test]
     fn socket_addr_serialization() {
         let ip = String::from("1.1.1.1").parse::<IpAddr>().unwrap();
@@ -108,5 +94,18 @@ mod test {
         socket_addr.encode(&mut out);
         let result = SocketAddr::decode(&mut out.to_vec().as_slice());
         assert_eq!(result.unwrap(), socket_addr);
+    }
+
+    #[test]
+    fn foo() {
+        let ip = String::from("1.1.1.1").parse::<IpAddr>().unwrap();
+        let foo = SocketAddr {
+            addr: net::SocketAddr::new(ip, 8080),
+        };
+        let foos = vec![foo.clone(), foo];
+        let mut out = vec![];
+        foos.encode(&mut out);
+        let recovered = Vec::<SocketAddr>::decode(&mut out.as_slice()).unwrap();
+        assert_eq!(foos, recovered);
     }
 }
