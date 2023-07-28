@@ -10,7 +10,6 @@ pub enum DecoderError {
     Malformed,
 }
 
-// TODO: Should I be placing RlpDecodable here?
 #[derive(Debug, RlpEncodable, RlpDecodable)]
 pub struct Message {
     pub target: Peer,

@@ -3,6 +3,7 @@ use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{decode, Message, MessageBody};
 use crate::node::Peer;
+use alloy_rlp::Decodable;
 use std::collections::HashMap;
 use std::io::Result;
 use std::net::SocketAddr;
@@ -75,13 +76,8 @@ impl Service {
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
                     let target = Peer {id, socket_addr: helper::SocketAddr { addr: socket_addr }};
+                    let inbound_req = Message::decode(&mut datagram.to_vec().as_slice()).unwrap();
 
-                    // How do i decode the datagram into a message??
-                    // TODO:    MessageBody::decode()
-                    // datagram.decode();
-
-                    let inbound_req = decode(&mut datagram.as_ref(), target).unwrap();
-                    println!("Inbound req: {:?}", inbound_req);
                     match &inbound_req.body {
                         MessageBody::Ping(_, None) => {
                             self.table.lock().unwrap().add(target);
