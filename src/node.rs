@@ -122,41 +122,8 @@ impl Node {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::node;
-    use std::net;
-    use std::net::IpAddr;
+    use crate::helper::{make_node, make_nodes};
     use tokio::time::Duration;
-
-    // TODO: Move make_node and make_nodes to helper
-    async fn make_nodes(n: u8) -> (Node, Vec<Node>) {
-        let local_node = make_node(0).await;
-        let mut remote_nodes = Vec::new();
-
-        for i in 1..n {
-            remote_nodes.push(make_node(i).await);
-        }
-
-        (local_node, remote_nodes)
-    }
-
-    async fn make_node(index: u8) -> Node {
-        let ip = String::from("127.0.0.1").parse::<IpAddr>().unwrap();
-        let port_start = 9000_u16;
-
-        let mut id = [0_u8; 32];
-        id[31] += index;
-        let port = port_start + index as u16;
-
-        let socket_addr = net::SocketAddr::new(ip, port);
-
-        let peer = Peer {
-            id,
-            socket_addr: node::SocketAddr { addr: socket_addr },
-        };
-
-        Node::new(peer).await
-    }
 
     // Run tests independently.  Tests fail when they're run together bc of address reuse.
     // TIP: If you don't give the thing a port, a free port is given automatically

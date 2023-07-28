@@ -104,6 +104,7 @@ impl Decodable for MessageBody {
     }
 }
 
+// TODO: Compress Tests
 #[cfg(test)]
 mod test {
     use super::*;
