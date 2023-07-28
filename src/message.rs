@@ -2,7 +2,6 @@ use crate::helper::Identifier;
 use crate::node::Peer;
 use alloy_rlp::{encode_list, Decodable, Encodable, Error, Rlp, RlpDecodable, RlpEncodable};
 use tokio::sync::oneshot;
-const PEER_LENGTH: usize = 46;
 type TotalNodes = u8;
 
 #[derive(Debug)]
@@ -103,70 +102,6 @@ impl Decodable for MessageBody {
         };
         Ok(msg)
     }
-}
-
-//  TODO: Delete!
-pub fn decode(data: &mut &[u8], target: Peer) -> Result<Message, DecoderError> {
-    if data.len() < 34 {
-        return Err(DecoderError::Malformed);
-    }
-    let msg_type = data[0];
-    let session = data[1];
-    let id: Identifier = data[2..34].try_into().expect("Invalid slice length");
-    let body = data[34..].as_ref();
-    let msg = match msg_type {
-        b'1' => Message {
-            target,
-            session,
-            body: MessageBody::Ping(id, None),
-        },
-        b'2' => Message {
-            target,
-            session,
-            body: MessageBody::Pong(id),
-        },
-        b'3' => {
-            let node_to_find = body[0..32].try_into().expect("Invalid slice length");
-            Message {
-                target,
-                session,
-                body: MessageBody::FindNode(id, node_to_find, None),
-            }
-        }
-        b'4' => {
-            let total = body[0];
-            if body.len() != 1 + PEER_LENGTH * total as usize {
-                return Err(DecoderError::Malformed);
-            }
-
-            let mut peers = Vec::new();
-            let mut dil_index = 1;
-            for _ in 0..total {
-                if let Ok(peer) = Peer::decode(data) {
-                    peers.push(peer);
-
-                    match body[dil_index] {
-                        0 => {
-                            dil_index += 38;
-                        }
-                        1 => {
-                            dil_index += 50;
-                        }
-                        _ => panic!(),
-                    }
-                } else {
-                    panic!()
-                }
-            }
-            Message {
-                target,
-                session,
-                body: MessageBody::FoundNode(id, total, peers),
-            }
-        }
-        _ => return Err(DecoderError::Malformed),
-    };
-    Ok(msg)
 }
 
 #[cfg(test)]

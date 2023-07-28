@@ -1,7 +1,7 @@
 use crate::helper;
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
-use crate::message::{decode, Message, MessageBody};
+use crate::message::{Message, MessageBody};
 use crate::node::Peer;
 use alloy_rlp::Decodable;
 use std::collections::HashMap;
