@@ -1,6 +1,6 @@
 use crate::helper::{Identifier, SocketAddr};
 use crate::kbucket::KbucketTable;
-use crate::message::{Message, MessageBody, MessageInner};
+use crate::message::{Message, MessageBody};
 use crate::service::Service;
 use alloy_rlp::{RlpDecodable, RlpEncodable};
 use rand::Rng;
@@ -27,7 +27,7 @@ pub struct Node {
     pub local_record: Peer,
     pub service_tx: Option<mpsc::Sender<Message>>,
     pub table: Arc<Mutex<KbucketTable>>,
-    pub outbound_requests: HashMap<Identifier, MessageInner>,
+    pub outbound_requests: HashMap<Identifier, Message>,
 }
 
 impl Node {
@@ -65,10 +65,8 @@ impl Node {
 
             let msg = Message {
                 target: peer,
-                inner: MessageInner {
-                    session: (rand::thread_rng().gen_range(0..=255)),
-                    body: (MessageBody::Ping(self.id, Some(tx))),
-                },
+                session: (rand::thread_rng().gen_range(0..=255)),
+                body: (MessageBody::Ping(self.id, Some(tx))),
             };
 
             let _ = self.service_tx.as_ref().unwrap().send(msg).await;
@@ -87,10 +85,8 @@ impl Node {
 
                     let msg = Message {
                         target,
-                        inner: MessageInner {
-                            session: (rand::thread_rng().gen_range(0..=255)),
-                            body: (MessageBody::FindNode(self.id, id, Some(tx))),
-                        },
+                        session: (rand::thread_rng().gen_range(0..=255)),
+                        body: (MessageBody::FindNode(self.id, id, Some(tx))),
                     };
 
                     let _ = self.service_tx.as_ref().unwrap().send(msg).await;

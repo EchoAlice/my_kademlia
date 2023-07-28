@@ -1,23 +1,19 @@
 use crate::helper::Identifier;
 use crate::node::Peer;
-use alloy_rlp::{encode_list, Decodable, Encodable, Error, Rlp, RlpEncodable};
+use alloy_rlp::{encode_list, Decodable, Encodable, Error, Rlp, RlpDecodable, RlpEncodable};
 use tokio::sync::oneshot;
 const PEER_LENGTH: usize = 46;
 type TotalNodes = u8;
 
+#[derive(Debug)]
 pub enum DecoderError {
     Malformed,
 }
 
-#[derive(Debug, RlpEncodable)]
+// TODO: Should I be placing RlpDecodable here?
+#[derive(Debug, RlpEncodable, RlpDecodable)]
 pub struct Message {
     pub target: Peer,
-    pub inner: MessageInner,
-}
-
-// TODO: Delete MessageInner
-#[derive(Debug, RlpEncodable)]
-pub struct MessageInner {
     pub session: u8,
     pub body: MessageBody,
 }
@@ -51,7 +47,6 @@ impl Encodable for MessageBody {
                 enc[1] = id;
                 encode_list::<_, dyn Encodable>(&enc, out);
             }
-            // _ => unimplemented!(),
             Self::Pong(id) => {
                 let mut enc: [&dyn Encodable; 2] = [b""; 2];
                 enc[0] = &1_u8;
@@ -112,7 +107,7 @@ impl Decodable for MessageBody {
 }
 
 //  TODO: Delete!
-pub fn decode(data: &mut &[u8]) -> Result<MessageInner, DecoderError> {
+pub fn decode(data: &mut &[u8], target: Peer) -> Result<Message, DecoderError> {
     if data.len() < 34 {
         return Err(DecoderError::Malformed);
     }
@@ -121,19 +116,22 @@ pub fn decode(data: &mut &[u8]) -> Result<MessageInner, DecoderError> {
     let id: Identifier = data[2..34].try_into().expect("Invalid slice length");
     let body = data[34..].as_ref();
     let msg = match msg_type {
-        b'1' => MessageInner {
+        b'1' => Message {
+            target,
             session,
             body: MessageBody::Ping(id, None),
         },
-        b'2' => MessageInner {
+        b'2' => Message {
+            target,
             session,
             body: MessageBody::Pong(id),
         },
         b'3' => {
-            let target = body[0..32].try_into().expect("Invalid slice length");
-            MessageInner {
+            let node_to_find = body[0..32].try_into().expect("Invalid slice length");
+            Message {
+                target,
                 session,
-                body: MessageBody::FindNode(id, target, None),
+                body: MessageBody::FindNode(id, node_to_find, None),
             }
         }
         b'4' => {
@@ -161,7 +159,8 @@ pub fn decode(data: &mut &[u8]) -> Result<MessageInner, DecoderError> {
                     panic!()
                 }
             }
-            MessageInner {
+            Message {
+                target,
                 session,
                 body: MessageBody::FoundNode(id, total, peers),
             }
@@ -169,14 +168,6 @@ pub fn decode(data: &mut &[u8]) -> Result<MessageInner, DecoderError> {
         _ => return Err(DecoderError::Malformed),
     };
     Ok(msg)
-}
-
-pub fn construct_msg(data: &mut &[u8], target: Peer) -> Message {
-    if let Ok(inner) = decode(data) {
-        let msg = Message { target, inner };
-        return msg;
-    }
-    panic!("Couldn't convert data to msg")
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use crate::helper;
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
-use crate::message::{construct_msg, Message, MessageBody, MessageInner};
+use crate::message::{decode, Message, MessageBody};
 use crate::node::Peer;
 use std::collections::HashMap;
 use std::io::Result;
@@ -55,10 +55,11 @@ impl Service {
     pub async fn start(&mut self) {
         loop {
             let mut datagram = [0_u8; 1024];
+            // let mut datagram = BytesMut;
             tokio::select! {
                 // Service Requests:
                 Some(service_msg) = self.node_rx.recv() => {
-                    match service_msg.inner.body {
+                    match service_msg.body {
                         MessageBody::Ping(_, _) => {
                             let _ = self.send_message(service_msg).await;
                         }
@@ -74,13 +75,17 @@ impl Service {
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
                     let target = Peer {id, socket_addr: helper::SocketAddr { addr: socket_addr }};
+
+                    // How do i decode the datagram into a message??
                     // TODO:    MessageBody::decode()
-                    let inbound_req = construct_msg(&mut datagram.as_ref(), target);
+                    // datagram.decode();
+
+                    let inbound_req = decode(&mut datagram.as_ref(), target).unwrap();
                     println!("Inbound req: {:?}", inbound_req);
-                    match &inbound_req.inner.body {
+                    match &inbound_req.body {
                         MessageBody::Ping(_, None) => {
                             self.table.lock().unwrap().add(target);
-                            self.pong(inbound_req.inner.session, target).await;
+                            self.pong(inbound_req.session, target).await;
                         }
                         MessageBody::Pong(_) => {
                             self.process_response(id, inbound_req);
@@ -124,10 +129,8 @@ impl Service {
     async fn pong(&mut self, session: u8, target: Peer) {
         let msg = Message {
             target,
-            inner: MessageInner {
-                session,
-                body: (MessageBody::Pong(self.local_record.id)),
-            },
+            session,
+            body: (MessageBody::Pong(self.local_record.id)),
         };
 
         let _ = self.send_message(msg).await;
@@ -136,14 +139,12 @@ impl Service {
     async fn found_node(&mut self, session: u8, target: Peer, closest_nodes: Vec<Peer>) {
         let msg = Message {
             target,
-            inner: MessageInner {
-                session,
-                body: (MessageBody::FoundNode(
-                    self.local_record.id,
-                    closest_nodes.len() as u8,
-                    closest_nodes,
-                )),
-            },
+            session,
+            body: (MessageBody::FoundNode(
+                self.local_record.id,
+                closest_nodes.len() as u8,
+                closest_nodes,
+            )),
         };
 
         let _ = self.send_message(msg).await;
@@ -174,10 +175,10 @@ impl Service {
         println!("Outbound reqs {:?}", self.outbound_requests);
         let local_msg = self.outbound_requests.remove(&id).unwrap();
 
-        match inbound_resp.inner.body {
+        match inbound_resp.body {
             MessageBody::Pong(_) => {
-                if let MessageBody::Ping(_, tx) = local_msg.inner.body {
-                    if local_msg.inner.session == inbound_resp.inner.session {
+                if let MessageBody::Ping(_, tx) = local_msg.body {
+                    if local_msg.session == inbound_resp.session {
                         let _ = tx.unwrap().send(true);
                     } else {
                         let _ = tx.unwrap().send(false);
@@ -185,8 +186,8 @@ impl Service {
                 }
             }
             MessageBody::FoundNode(_, _, closest_peers) => {
-                if let MessageBody::FindNode(_, _, tx) = local_msg.inner.body {
-                    if local_msg.inner.session == inbound_resp.inner.session {
+                if let MessageBody::FindNode(_, _, tx) = local_msg.body {
+                    if local_msg.session == inbound_resp.session {
                         let _ = tx.unwrap().send(Some(closest_peers));
                     } else {
                         let _ = tx.unwrap().send(None);

@@ -16,6 +16,25 @@ construct_uint! {
     pub struct U256(4);
 }
 
+pub fn encoded<T: Encodable>(t: &T) -> BytesMut {
+    let mut out = BytesMut::new();
+    t.encode(&mut out);
+
+    println!("Out (encode): {:?}", out);
+    out
+}
+
+// TODO:
+// data: &mut &[u8]
+// pub fn decoded<T: Decodable>(t: &T) -> BytesMut {
+//     let mut out = BytesMut::new();
+//     Decodable::decode(t);
+//     // t.decode(&mut out);
+
+//     println!("Out (encode): {:?}", out);
+//     out
+// }
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SocketAddr {
     pub addr: net::SocketAddr,
@@ -50,16 +69,8 @@ impl Encodable for SocketAddr {
     }
 }
 
-pub fn encoded<T: Encodable>(t: &T) -> BytesMut {
-    let mut out = BytesMut::new();
-    t.encode(&mut out);
-
-    println!("Out (encode): {:?}", out);
-    out
-}
-
 impl Decodable for SocketAddr {
-    // We know the size of the datagram before it's called to be decoded
+    // TODO: Do the two match arms need to return SocketAddrV4 and SocketAddrV6?
     fn decode(data: &mut &[u8]) -> Result<Self, Error> {
         let mut payload = alloy_rlp::Header::decode_bytes(data, true)?;
 
@@ -70,7 +81,12 @@ impl Decodable for SocketAddr {
                 let port = u16::decode(&mut payload)?;
                 net::SocketAddr::new(ip.into(), port)
             }
-            _ => unimplemented!(),
+            1 => {
+                let ip = <[u8; 16]>::decode(&mut payload)?;
+                let port = u16::decode(&mut payload)?;
+                net::SocketAddr::new(ip.into(), port)
+            }
+            _ => panic!("Not a SocketAddr"),
         };
 
         Ok(Self { addr })
@@ -97,7 +113,7 @@ mod test {
     }
 
     #[test]
-    fn foo() {
+    fn socket_addr_serialization_vec() {
         let ip = String::from("1.1.1.1").parse::<IpAddr>().unwrap();
         let foo = SocketAddr {
             addr: net::SocketAddr::new(ip, 8080),
