@@ -1,7 +1,8 @@
-use crate::helper::{Identifier, SocketAddr};
+use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody};
 use crate::service::Service;
+use crate::socket;
 use alloy_rlp::{RlpDecodable, RlpEncodable};
 use rand::Rng;
 use std::{
@@ -14,7 +15,7 @@ use tokio::sync::{mpsc, oneshot};
 #[derive(Clone, Copy, Debug, PartialEq, RlpEncodable, RlpDecodable)]
 pub struct Peer {
     pub id: Identifier,
-    pub socket_addr: SocketAddr,
+    pub socket_addr: socket::SocketAddr,
 }
 
 // TODO: Handle errors properly

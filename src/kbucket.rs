@@ -1,5 +1,6 @@
-use crate::helper::{Identifier, SocketAddr, U256};
+use crate::helper::{Identifier, U256};
 use crate::node::Peer;
+use crate::socket::SocketAddr;
 use std::collections::HashMap;
 
 const BUCKET_SIZE: usize = 20; // "k"

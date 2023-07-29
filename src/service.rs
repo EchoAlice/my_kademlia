@@ -1,12 +1,12 @@
-use crate::helper;
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody};
 use crate::node::Peer;
+use crate::socket;
 use alloy_rlp::Decodable;
 use std::collections::HashMap;
 use std::io::Result;
-use std::net::SocketAddr;
+use std::net;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
@@ -30,10 +30,11 @@ impl Service {
     ) -> Option<mpsc::Sender<Message>> {
         let (service_tx, node_rx) = mpsc::channel(32);
 
+        // TODO: Do i need to implement socket::SocketAddr?
         let mut service = Service {
             local_record,
             socket: Arc::new(
-                UdpSocket::bind(SocketAddr::new(
+                UdpSocket::bind(net::SocketAddr::new(
                     local_record.socket_addr.addr.ip(),
                     local_record.socket_addr.addr.port(),
                 ))
@@ -75,7 +76,7 @@ impl Service {
                 // External Message Processing:
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
                     let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
-                    let target = Peer {id, socket_addr: helper::SocketAddr { addr: socket_addr }};
+                    let target = Peer {id, socket_addr: socket::SocketAddr { addr: socket_addr }};
                     let inbound_req = Message::decode(&mut datagram.to_vec().as_slice()).unwrap();
 
                     match &inbound_req.body {
@@ -149,12 +150,12 @@ impl Service {
     // Helper Functions
     // ---------------------------------------------------------------------------------------------------
     async fn send_message(&mut self, msg: Message) -> Result<()> {
-        let dest = SocketAddr::new(
+        let dest = net::SocketAddr::new(
             msg.target.socket_addr.addr.ip(),
             msg.target.socket_addr.addr.port(),
         );
 
-        let message_bytes = helper::encoded(&msg);
+        let message_bytes = socket::encoded(&msg);
         println!("Message bytes: {:?}", message_bytes);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
 
