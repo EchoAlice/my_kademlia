@@ -9,9 +9,14 @@ use std::net;
 use std::net::IpAddr;
 use uint::*;
 pub const PING_MESSAGE_SIZE: usize = 1024;
-pub type Identifier = [u8; 32];
 
-//  TODO: impl "from" for Identifier
+pub type Identifier = [u8; 32];
+//  TODO:
+// pub struct Identifier {
+//     inner: [u8; 32],
+// }
+// impl From<u64> for Identifier {}
+
 construct_uint! {
     /// 256-bit unsigned integer (little endian).
     pub struct U256(4);
@@ -60,7 +65,6 @@ impl Encodable for SocketAddr {
 }
 
 impl Decodable for SocketAddr {
-    // TODO: Do the two match arms need to return SocketAddrV4 and SocketAddrV6?
     fn decode(data: &mut &[u8]) -> Result<Self, Error> {
         let mut payload = alloy_rlp::Header::decode_bytes(data, true)?;
 
