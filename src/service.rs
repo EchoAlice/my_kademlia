@@ -30,7 +30,6 @@ impl Service {
     ) -> Option<mpsc::Sender<Message>> {
         let (service_tx, node_rx) = mpsc::channel(32);
 
-        // TODO: Do i need to implement socket::SocketAddr?
         let mut service = Service {
             local_record,
             socket: Arc::new(
@@ -57,7 +56,6 @@ impl Service {
     pub async fn start(&mut self) {
         loop {
             let mut datagram = [0_u8; 1024];
-            // let mut datagram = BytesMut;
             tokio::select! {
                 // Service Requests:
                 Some(service_msg) = self.node_rx.recv() => {
@@ -73,28 +71,30 @@ impl Service {
                         }
                     }
                 }
+
                 // External Message Processing:
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
-                    let id: [u8; 32] = datagram[2..34].try_into().expect("Invalid slice length");  // This should be at a lower level
-                    let target = Peer {id, socket_addr: socket::SocketAddr { addr: socket_addr }};
                     let inbound_req = Message::decode(&mut datagram.to_vec().as_slice()).unwrap();
+                    let socket_addr = socket::SocketAddr { addr: socket_addr };
 
                     match &inbound_req.body {
-                        MessageBody::Ping(_, None) => {
+                        MessageBody::Ping(id, None) => {
+                            let target = Peer {id: *id, socket_addr};
                             self.table.lock().unwrap().add(target);
                             self.pong(inbound_req.session, target).await;
                         }
-                        MessageBody::Pong(_) => {
-                            self.process_response(id, inbound_req);
+                        MessageBody::Pong(id) => {
+                            let target = Peer {id: *id, socket_addr};
+                            self.process_response(target.id, inbound_req);
                         }
-                        MessageBody::FindNode(_, node_to_find, _) => {
+                        MessageBody::FindNode(id, node_to_find, _) => {
+                            let target = Peer {id: *id, socket_addr};
                             let mut bucket = Vec::new();
                             // TODO: get_closest_nodes()
 
                             // TODO: Why is "get_closest_node()" not being called?
                             println!("Get closest node");
 
-                            // NEW
                             let table = &self.table.lock().unwrap();
                             let close_node = table.get_closest_node(&node_to_find);
                             if close_node.is_none() {
@@ -109,8 +109,9 @@ impl Service {
                             // bucket.push(close_node.unwrap());
                             // self.found_node(inbound_req.inner.session, target, bucket).await;
                         }
-                        MessageBody::FoundNode(_, _, _) => {
-                            self.process_response(id, inbound_req);
+                        MessageBody::FoundNode(id, _, _) => {
+                            let target = Peer {id: *id, socket_addr};
+                            self.process_response(target.id, inbound_req);
                         }
                         _ => {
                             unimplemented!()
@@ -129,7 +130,6 @@ impl Service {
             session,
             body: (MessageBody::Pong(self.local_record.id)),
         };
-
         let _ = self.send_message(msg).await;
     }
 
@@ -156,20 +156,17 @@ impl Service {
         );
 
         let message_bytes = socket::encoded(&msg);
-        println!("Message bytes: {:?}", message_bytes);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
 
-        // TODO: Implement multiple pending messages per target
         self.outbound_requests.insert(msg.target.id, msg);
         Ok(())
     }
 
-    // Verifies the pong message received matches the ping originally sent and sends message to high level ping()
+    // TODO: Remove id from parameter
+    //
+    // Verifies msg received is legit wrt msg originally sent
     fn process_response(&mut self, id: Identifier, inbound_resp: Message) {
         // Warning: This removes all outbound reqs to an individual node.
-        println!("Local node {:?}", self.local_record.id[31]);
-        println!("req id: {:?}", id);
-        println!("Outbound reqs {:?}", self.outbound_requests);
         let local_msg = self.outbound_requests.remove(&id).unwrap();
 
         match inbound_resp.body {

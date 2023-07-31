@@ -41,7 +41,6 @@ impl KbucketTable {
 
     pub fn add(&mut self, peer: Peer) -> bool {
         let bucket_index = self.xor_bucket_index(&peer.id);
-
         match self.buckets[bucket_index].add(peer).is_none() {
             true => true,
             false => false,

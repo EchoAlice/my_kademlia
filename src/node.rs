@@ -145,6 +145,9 @@ mod tests {
         let mut local = make_node(0).await;
         let mut remote = make_node(1).await;
         local.table.lock().unwrap().add(remote.local_record);
+        println!("Local Node ID: {:?}", local.id);
+        println!("Remote Node ID: {:?}", remote.id);
+        println!("\n");
 
         let _ = local.start().await;
         let _ = remote.start().await;
