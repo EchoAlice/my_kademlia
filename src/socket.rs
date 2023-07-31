@@ -6,7 +6,6 @@ pub fn encoded<T: Encodable>(t: &T) -> BytesMut {
     let mut out = BytesMut::new();
     t.encode(&mut out);
 
-    println!("Out (encode): {:?}", out);
     out
 }
 

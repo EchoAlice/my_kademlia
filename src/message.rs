@@ -1,6 +1,6 @@
 use crate::helper::Identifier;
 use crate::node::Peer;
-use alloy_rlp::{encode_list, Decodable, Encodable, Error, Rlp, RlpDecodable, RlpEncodable};
+use alloy_rlp::{encode_list, Decodable, Encodable, Error, RlpDecodable, RlpEncodable};
 use tokio::sync::oneshot;
 type TotalNodes = u8;
 
@@ -71,27 +71,27 @@ impl Encodable for MessageBody {
 
 impl Decodable for MessageBody {
     fn decode(data: &mut &[u8]) -> Result<Self, Error> {
-        let mut stream = Rlp::new(data)?;
-        let typ = stream.get_next::<u8>()?.unwrap();
+        let mut payload = alloy_rlp::Header::decode_bytes(data, true)?;
+
+        let typ = u8::decode(&mut payload)?;
         let msg = match typ {
             0 => {
-                let id = stream.get_next::<[u8; 32]>()?.unwrap();
+                let id = <[u8; 32]>::decode(&mut payload)?;
                 MessageBody::Ping(id, None)
             }
             1 => {
-                let id = stream.get_next::<[u8; 32]>()?.unwrap();
+                let id = <[u8; 32]>::decode(&mut payload)?;
                 MessageBody::Pong(id)
             }
             2 => {
-                let id = stream.get_next::<[u8; 32]>()?.unwrap();
-                let target = stream.get_next::<[u8; 32]>()?.unwrap();
+                let id = <[u8; 32]>::decode(&mut payload)?;
+                let target = <[u8; 32]>::decode(&mut payload)?;
                 MessageBody::FindNode(id, target, None)
             }
             3 => {
-                let id = stream.get_next::<[u8; 32]>()?.unwrap();
-                let total = stream.get_next::<u8>()?.unwrap();
-                let peers = stream.get_next::<Vec<Peer>>()?.unwrap();
-
+                let id = <[u8; 32]>::decode(&mut payload)?;
+                let total = <u8>::decode(&mut payload)?;
+                let peers = <Vec<Peer>>::decode(&mut payload)?;
                 MessageBody::FoundNode(id, total, peers)
             }
             _ => panic!(),
@@ -106,8 +106,8 @@ mod test {
     use crate::helper::make_peer;
     use bytes::BytesMut;
 
-    // We can't assert_eq for msg body.  One shot channels don't allow
-    // us to #[derive(PartialEq)] on msg body.  Printing statements instead.
+    // One shot channels don't allow us to #[derive(PartialEq)] on msg body.
+    // Printing statements instead.
     #[test]
     fn serialize_ping() {
         let id = [0u8; 32];
