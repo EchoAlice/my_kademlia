@@ -46,22 +46,21 @@ impl KbucketTable {
         }
     }
 
-    // TODO: pub fn get() -> Option<Peer>
-    pub fn get(&self, id: &Identifier) -> Option<&SocketAddr> {
+    pub fn get(&self, id: &Identifier) -> Option<Peer> {
         let bucket_index = self.xor_bucket_index(id);
         let bucket = &self.buckets[bucket_index];
-        bucket.map.get(id)
-    }
-
-    // TODO: pub fn k_closest_nodes() {}
-    pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
-        if let Some(socket_addr) = self.get(id) {
-            println!("Peer is within table.");
+        if let Some(socket_addr) = bucket.map.get(id) {
             return Some(Peer {
                 id: *id,
                 socket_addr: *socket_addr,
             });
+        } else {
+            None
         }
+    }
+
+    // TODO: pub fn k_closest_nodes() {}
+    pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
         let bucket_index = self.xor_bucket_index(id);
 
         // Searches table for closest (single) peer
@@ -69,6 +68,7 @@ impl KbucketTable {
             if !bucket.map.is_empty() {
                 let k = bucket.map.keys().next().unwrap();
                 let (k, v) = bucket.map.get_key_value(k).unwrap();
+
                 return Some(Peer {
                     id: *k,
                     socket_addr: *v,
@@ -81,6 +81,7 @@ impl KbucketTable {
             if !self.buckets[i].map.is_empty() {
                 let k = self.buckets[i].map.keys().next().unwrap();
                 let (k, v) = self.buckets[i].map.get_key_value(k).unwrap();
+
                 return Some(Peer {
                     id: *k,
                     socket_addr: *v,
@@ -131,5 +132,17 @@ mod test {
         let closest_node = table.get_closest_node(&node_to_find.id).unwrap();
         let expected_node = make_peer(2);
         assert_eq!(closest_node, expected_node);
+    }
+
+    #[test]
+    fn get_closest_nodes() {
+        let local = make_peer(0);
+        let mut table = KbucketTable::new(local);
+        for i in 2..30 {
+            if i != 3 {
+                let peer = make_peer(i);
+                table.add(peer);
+            }
+        }
     }
 }

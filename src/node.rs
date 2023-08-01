@@ -18,8 +18,6 @@ pub struct Peer {
     pub socket_addr: socket::SocketAddr,
 }
 
-// TODO: Handle errors properly
-
 // The main Kademlia client struct.
 // Provides user-level API for performing querie and interacting with the underlying service.
 #[derive(Debug)]
@@ -58,8 +56,7 @@ impl Node {
                 if target.is_none() {
                     return false;
                 }
-                let socket_addr = *target.unwrap();
-                Peer { id, socket_addr }
+                target.unwrap()
             };
 
             let (tx, rx) = oneshot::channel();
