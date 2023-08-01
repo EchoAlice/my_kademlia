@@ -67,7 +67,6 @@ impl KbucketTable {
         // Searches table for closest (single) peer
         for bucket in self.buckets.iter().skip(bucket_index) {
             if !bucket.map.is_empty() {
-                println!("Finding closest peer");
                 let k = bucket.map.keys().next().unwrap();
                 let (k, v) = bucket.map.get_key_value(k).unwrap();
                 return Some(Peer {
@@ -120,8 +119,6 @@ mod test {
     #[test]
     fn get_closest_node() {
         let local = make_peer(0);
-
-        // Populate table.
         let mut table = KbucketTable::new(local);
         for i in 2..10 {
             if i != 3 {
@@ -130,8 +127,9 @@ mod test {
             }
         }
 
-        let to_find = make_peer(3);
-        let node = table.get_closest_node(&to_find.id);
-        println!("Node: {:?}", node);
+        let node_to_find = make_peer(3);
+        let closest_node = table.get_closest_node(&node_to_find.id).unwrap();
+        let expected_node = make_peer(2);
+        assert_eq!(closest_node, expected_node);
     }
 }
