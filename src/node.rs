@@ -75,31 +75,37 @@ impl Node {
         }
     }
 
-    #[allow(warnings)]
-    pub fn find_node(&mut self, id: Identifier) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
+    pub fn find_node(
+        &mut self,
+        node_to_find: Identifier,
+    ) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
         async move {
-            let table = &self.table.lock().unwrap();
-            let target = table.get(&id);
-            if target.is_none() {
-                if let Some(target) = table.get_closest_node(&id) {
-                    let (tx, rx) = oneshot::channel();
+            let target = {
+                let table = &self.table.lock().unwrap();
+                let target = table.get(&node_to_find);
 
-                    let msg = Message {
-                        target,
-                        session: (rand::thread_rng().gen_range(0..=255)),
-                        body: (MessageBody::FindNode(self.id, id, Some(tx))),
-                    };
-
-                    let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-                    rx.await.unwrap()
-                } else {
-                    println!("No peer was returned");
+                // Should i check internally for node before requesting?
+                if !target.is_none() {
+                    println!("Node is already in table!");
                     return None;
                 }
-            } else {
-                println!("Node was already in table");
-                return None;
-            }
+                if let Some(target) = table.get_closest_node(&node_to_find) {
+                    target
+                } else {
+                    println!("No nodes in routing table");
+                    return None;
+                }
+            };
+            let (tx, rx) = oneshot::channel();
+
+            let msg = Message {
+                target,
+                session: (rand::thread_rng().gen_range(0..=255)),
+                body: (MessageBody::FindNode(self.id, node_to_find, Some(tx))),
+            };
+
+            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+            rx.await.unwrap()
         }
     }
 
@@ -145,9 +151,6 @@ mod tests {
         let mut local = make_node(0).await;
         let mut remote = make_node(1).await;
         local.table.lock().unwrap().add(remote.local_record);
-        println!("Local Node ID: {:?}", local.id);
-        println!("Remote Node ID: {:?}", remote.id);
-        println!("\n");
 
         let _ = local.start().await;
         let _ = remote.start().await;
@@ -161,7 +164,6 @@ mod tests {
         assert!(!ping.await);
     }
 
-    // TODO:
     #[allow(warnings)]
     #[tokio::test]
     async fn find_node() {
@@ -176,17 +178,22 @@ mod tests {
         let mut remote_table = remote.table.lock().unwrap();
         let remote_table = {
             for i in 2..10 {
-                let node = make_node(i).await;
-                remote_table.add(node.local_record);
+                if i != 3 {
+                    let node = make_node(i).await;
+                    remote_table.add(node.local_record);
+                }
             }
             remote_table
         };
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let node_to_find = make_node(7).await.local_record.id;
-        let result = local.find_node(node_to_find).await;
-        println!("Result");
-        assert!(true);
+        let node_to_find = make_node(3).await.local_record.id;
+        let find_node = local.find_node(node_to_find);
+        find_node.await;
+
+        // let expected result = ;
+        // assert_eq!(find_node.await, );
+
         // Verify response from node
     }
 }
