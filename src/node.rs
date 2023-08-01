@@ -75,6 +75,7 @@ impl Node {
         }
     }
 
+    // Should i check routing table for node_to_find before requesting?
     pub fn find_node(
         &mut self,
         node_to_find: Identifier,
@@ -84,7 +85,6 @@ impl Node {
                 let table = &self.table.lock().unwrap();
                 let target = table.get(&node_to_find);
 
-                // Should i check internally for node before requesting?
                 if !target.is_none() {
                     println!("Node is already in table!");
                     return None;
@@ -96,8 +96,8 @@ impl Node {
                     return None;
                 }
             };
-            let (tx, rx) = oneshot::channel();
 
+            let (tx, rx) = oneshot::channel();
             let msg = Message {
                 target,
                 session: (rand::thread_rng().gen_range(0..=255)),
@@ -108,13 +108,6 @@ impl Node {
             rx.await.unwrap()
         }
     }
-
-    // TODO: Later
-    // pub fn find_value() {}
-
-    // TODO: Later
-    // pub fn store(&mut self, value: Vec<u8>) {}
-
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
@@ -147,7 +140,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ping() {
+    async fn ping_rpc() {
         let mut local = make_node(0).await;
         let mut remote = make_node(1).await;
         local.table.lock().unwrap().add(remote.local_record);
@@ -166,30 +159,33 @@ mod tests {
 
     #[allow(warnings)]
     #[tokio::test]
-    async fn find_node() {
+    async fn find_node_rpc() {
         let mut local = make_node(0).await;
         let mut remote = make_node(1).await;
         local.table.lock().unwrap().add(remote.local_record);
 
+        // Populate remote's table
+        {
+            let mut remote_table = remote.table.lock().unwrap();
+            let remote_table = {
+                for i in 2..10 {
+                    if i != 3 {
+                        let node = make_node(i).await;
+                        remote_table.add(node.local_record);
+                    }
+                }
+                remote_table
+            };
+        }
         let _ = local.start().await;
         let _ = remote.start().await;
 
-        // Populate remote's table
-        let mut remote_table = remote.table.lock().unwrap();
-        let remote_table = {
-            for i in 2..10 {
-                if i != 3 {
-                    let node = make_node(i).await;
-                    remote_table.add(node.local_record);
-                }
-            }
-            remote_table
-        };
-
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let node_to_find = make_node(3).await.local_record.id;
-        let find_node = local.find_node(node_to_find);
-        find_node.await;
+        let node_to_find = make_node(3).await.local_record;
+        let find_node = local.find_node(node_to_find.id);
+        let result = find_node.await;
+        println!("\n");
+        println!("Peer: {:?}", result);
 
         // let expected result = ;
         // assert_eq!(find_node.await, );

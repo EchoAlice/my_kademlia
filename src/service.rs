@@ -19,6 +19,7 @@ pub struct Service {
     node_rx: mpsc::Receiver<Message>,
     pub outbound_requests: HashMap<Identifier, Message>,
     pub table: Arc<Mutex<KbucketTable>>,
+    // pub table: std::arc::Arc<std::sync::Mutex<KbucketTable>>,  <-- Alex's suggestion
 }
 
 impl Service {
@@ -87,27 +88,14 @@ impl Service {
                             let target = Peer {id: *id, socket_addr};
                             self.process_response(target.id, inbound_req);
                         }
+                        // TODO: Create function that returns k closest nodes
                         MessageBody::FindNode(id, node_to_find, _) => {
+                            let mut closest_nodes = Vec::new();
                             let target = Peer {id: *id, socket_addr};
-                            let mut bucket = Vec::new();
-                            // TODO: get_closest_nodes()
+                            let close_node = self.table.lock().unwrap().get_closest_node(&node_to_find).unwrap();
+                            closest_nodes.push(close_node);
 
-                            // TODO: Why is "get_closest_node()" not being called?
-                            println!("Get closest node");
-
-                            let table = &self.table.lock().unwrap();
-                            let close_node = table.get_closest_node(&node_to_find);
-                            if close_node.is_none() {
-                                println!("No node found");
-                                return;
-                            }
-                            bucket.push(close_node.unwrap());
-                            // self.found_node(inbound_req.inner.session, target, bucket).await;
-
-                            // OLD
-                            // let close_node = self.table.lock().unwrap().get_closest_node(&node_to_find);
-                            // bucket.push(close_node.unwrap());
-                            // self.found_node(inbound_req.inner.session, target, bucket).await;
+                            self.found_node(inbound_req.session, target, closest_nodes).await;
                         }
                         MessageBody::FoundNode(id, _, _) => {
                             let target = Peer {id: *id, socket_addr};
@@ -143,7 +131,6 @@ impl Service {
                 closest_nodes,
             )),
         };
-
         let _ = self.send_message(msg).await;
     }
 
@@ -157,7 +144,10 @@ impl Service {
 
         let message_bytes = socket::encoded(&msg);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
-
+        println!("\n");
+        println!("Local node: {:?}", self.local_record.id);
+        println!("Outbound inserted: {:?}", msg);
+        println!("\n");
         self.outbound_requests.insert(msg.target.id, msg);
         Ok(())
     }
@@ -168,7 +158,7 @@ impl Service {
     fn process_response(&mut self, id: Identifier, inbound_resp: Message) {
         // Warning: This removes all outbound reqs to an individual node.
         let local_msg = self.outbound_requests.remove(&id).unwrap();
-
+        println!("Local msg: {:?}", local_msg.body);
         match inbound_resp.body {
             MessageBody::Pong(_) => {
                 if let MessageBody::Ping(_, tx) = local_msg.body {
@@ -180,10 +170,13 @@ impl Service {
                 }
             }
             MessageBody::FoundNode(_, _, closest_peers) => {
+                println!("Processing response");
                 if let MessageBody::FindNode(_, _, tx) = local_msg.body {
                     if local_msg.session == inbound_resp.session {
+                        println!("sending response back to main rpc");
                         let _ = tx.unwrap().send(Some(closest_peers));
                     } else {
+                        println!("Sessions didn't match!");
                         let _ = tx.unwrap().send(None);
                     }
                 }

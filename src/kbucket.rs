@@ -14,7 +14,6 @@ pub struct Bucket {
 
 impl Bucket {
     fn add(&mut self, peer: Peer) -> Option<SocketAddr> {
-        // let
         if self.map.len() <= BUCKET_SIZE {
             self.map.insert(peer.id, peer.socket_addr)
         } else {
@@ -47,18 +46,17 @@ impl KbucketTable {
         }
     }
 
+    // TODO: pub fn get() -> Option<Peer>
     pub fn get(&self, id: &Identifier) -> Option<&SocketAddr> {
         let bucket_index = self.xor_bucket_index(id);
         let bucket = &self.buckets[bucket_index];
         bucket.map.get(id)
     }
 
-    // TODO: Figure out this algorithm.
-    //       pub fn k_closest_nodes() {}
+    // TODO: pub fn k_closest_nodes() {}
     pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
-        // Searches table for peer
         if let Some(socket_addr) = self.get(id) {
-            println!("Successful get");
+            println!("Peer is within table.");
             return Some(Peer {
                 id: *id,
                 socket_addr: *socket_addr,
@@ -78,8 +76,8 @@ impl KbucketTable {
                 });
             }
         }
-        println!("Node wasn't found");
-        // Loops around table.  Not great...  Should I be oscilating between bucket[i+1] and bucket[i-1]?
+
+        // Loops around table. Should I be oscilating between bucket[i+1] and bucket[i-1]?
         for i in (0..bucket_index).rev() {
             if !self.buckets[i].map.is_empty() {
                 let k = self.buckets[i].map.keys().next().unwrap();
@@ -90,6 +88,7 @@ impl KbucketTable {
                 });
             }
         }
+        println!("Node still wasn't found");
         None
     }
 
@@ -113,8 +112,6 @@ impl KbucketTable {
     }
 }
 
-// TODO: Create tests for table logic
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -123,15 +120,16 @@ mod test {
     #[test]
     fn get_closest_node() {
         let local = make_peer(0);
-        let mut table = KbucketTable::new(local);
 
         // Populate table.
+        let mut table = KbucketTable::new(local);
         for i in 2..10 {
             if i != 3 {
                 let peer = make_peer(i);
                 table.add(peer);
             }
         }
+
         let to_find = make_peer(3);
         let node = table.get_closest_node(&to_find.id);
         println!("Node: {:?}", node);
