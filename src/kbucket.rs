@@ -1,10 +1,10 @@
-use crate::helper::{Identifier, U256};
+use crate::helper::{xor_bucket_index, Identifier};
 use crate::node::Peer;
 use crate::socket::SocketAddr;
 use std::collections::HashMap;
 
 const BUCKET_SIZE: usize = 20; // "k"
-const MAX_BUCKETS: usize = 256;
+pub const MAX_BUCKETS: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bucket {
@@ -39,7 +39,7 @@ impl KbucketTable {
     }
 
     pub fn add(&mut self, peer: Peer) -> bool {
-        let bucket_index = self.xor_bucket_index(&peer.id);
+        let bucket_index = xor_bucket_index(&self.peer.id, &peer.id);
         match self.buckets[bucket_index].add(peer).is_none() {
             true => true,
             false => false,
@@ -47,7 +47,7 @@ impl KbucketTable {
     }
 
     pub fn get(&self, id: &Identifier) -> Option<Peer> {
-        let bucket_index = self.xor_bucket_index(id);
+        let bucket_index = xor_bucket_index(&self.peer.id, &id);
         let bucket = &self.buckets[bucket_index];
         if let Some(socket_addr) = bucket.map.get(id) {
             return Some(Peer {
@@ -61,7 +61,7 @@ impl KbucketTable {
 
     // TODO: pub fn k_closest_nodes() {}
     pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
-        let bucket_index = self.xor_bucket_index(id);
+        let bucket_index = xor_bucket_index(&self.peer.id, &id);
 
         // Searches table for closest (single) peer
         for bucket in self.buckets.iter().skip(bucket_index) {
@@ -93,22 +93,13 @@ impl KbucketTable {
     }
 
     pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
-        let bucket_index = self.xor_bucket_index(id);
+        let bucket_index = xor_bucket_index(&self.peer.id, id);
         if self.buckets[bucket_index].map.is_empty() {
             println!("BUCKET IS EMPTY");
             return None;
         }
         println!("BUCKET ISN'T EMPTY");
         Some(&self.buckets[bucket_index].map)
-    }
-
-    // TODO: Move to helper.rs  xor(id1, id2)
-    pub fn xor_bucket_index(&self, id: &Identifier) -> usize {
-        let x = U256::from(self.peer.id);
-        let y = U256::from(id);
-        let xor_distance = x ^ y;
-
-        MAX_BUCKETS - (xor_distance.leading_zeros() as usize)
     }
 }
 
@@ -144,5 +135,11 @@ mod test {
                 table.add(peer);
             }
         }
+
+        // Figure out xor distances for each node.
+
+        let node_to_find = make_peer(3);
+        let _closest_node = table.get_closest_node(&node_to_find.id).unwrap();
+        let _expected_node = make_peer(2);
     }
 }
