@@ -54,9 +54,11 @@ impl KbucketTable {
     }
 
     // TODO: Figure out this algorithm.
+    //       pub fn k_closest_nodes() {}
     pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
-        println!("Getting closest node");
+        // Searches table for peer
         if let Some(socket_addr) = self.get(id) {
+            println!("Successful get");
             return Some(Peer {
                 id: *id,
                 socket_addr: *socket_addr,
@@ -64,8 +66,10 @@ impl KbucketTable {
         }
         let bucket_index = self.xor_bucket_index(id);
 
+        // Searches table for closest (single) peer
         for bucket in self.buckets.iter().skip(bucket_index) {
             if !bucket.map.is_empty() {
+                println!("Finding closest peer");
                 let k = bucket.map.keys().next().unwrap();
                 let (k, v) = bucket.map.get_key_value(k).unwrap();
                 return Some(Peer {
@@ -74,6 +78,7 @@ impl KbucketTable {
                 });
             }
         }
+        println!("Node wasn't found");
         // Loops around table.  Not great...  Should I be oscilating between bucket[i+1] and bucket[i-1]?
         for i in (0..bucket_index).rev() {
             if !self.buckets[i].map.is_empty() {
@@ -81,16 +86,12 @@ impl KbucketTable {
                 let (k, v) = self.buckets[i].map.get_key_value(k).unwrap();
                 return Some(Peer {
                     id: *k,
-                    // socket_addr: *v,
                     socket_addr: *v,
                 });
             }
         }
         None
     }
-
-    // TODO: Create complete routing table logic (return K closest nodes instead of indexed bucket)
-    // pub fn get_closest_nodes() {}
 
     pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
         let bucket_index = self.xor_bucket_index(id);
@@ -112,4 +113,27 @@ impl KbucketTable {
     }
 }
 
-// TODO: Create tests for bucket logic
+// TODO: Create tests for table logic
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::helper::make_peer;
+
+    #[test]
+    fn get_closest_node() {
+        let local = make_peer(0);
+        let mut table = KbucketTable::new(local);
+
+        // Populate table.
+        for i in 2..10 {
+            if i != 3 {
+                let peer = make_peer(i);
+                table.add(peer);
+            }
+        }
+        let to_find = make_peer(3);
+        let node = table.get_closest_node(&to_find.id);
+        println!("Node: {:?}", node);
+    }
+}
