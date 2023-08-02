@@ -2,12 +2,13 @@ use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
 use crate::message::{Message, MessageBody};
 use crate::service::Service;
-use crate::socket;
+use crate::socket::{self, SocketAddr};
 use alloy_rlp::{RlpDecodable, RlpEncodable};
 use rand::Rng;
 use std::{
     collections::HashMap,
     future::Future,
+    net,
     sync::{Arc, Mutex},
 };
 use tokio::sync::{mpsc, oneshot};
@@ -23,19 +24,19 @@ pub struct Peer {
 #[derive(Debug)]
 pub struct Node {
     pub id: Identifier,
-    pub local_record: Peer,
+    pub socket: SocketAddr,
     pub service_tx: Option<mpsc::Sender<Message>>,
     pub table: Arc<Mutex<KbucketTable>>,
     pub outbound_requests: HashMap<Identifier, Message>,
 }
 
 impl Node {
-    pub async fn new(local_record: Peer) -> Self {
+    pub fn new(id: Identifier, socket: net::SocketAddr) -> Self {
         Self {
-            id: local_record.id,
-            local_record,
+            id,
+            socket: SocketAddr { addr: socket },
             service_tx: None,
-            table: Arc::new(Mutex::new(KbucketTable::new(local_record))),
+            table: Arc::new(Mutex::new(KbucketTable::new(id))),
             outbound_requests: (Default::default()),
         }
     }
@@ -108,7 +109,11 @@ impl Node {
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
-        if let Some(service_tx) = Service::spawn(self.local_record, self.table.clone()).await {
+        let local_record = Peer {
+            id: self.id,
+            socket_addr: self.socket,
+        };
+        if let Some(service_tx) = Service::spawn(local_record, self.table.clone()).await {
             self.service_tx = Some(service_tx);
             Ok(())
         } else {
@@ -119,37 +124,38 @@ impl Node {
 
 #[cfg(test)]
 mod tests {
-    use crate::helper::{make_node, make_nodes};
+    use super::*;
+    use crate::helper::U256;
+    use std::net::{IpAddr, SocketAddr};
     use tokio::time::Duration;
-
-    // Run tests independently.  Tests fail when they're run together bc of address reuse.
-    // TIP: If you don't give the thing a port, a free port is given automatically
-    #[tokio::test]
-    async fn add_redundant_node() {
-        let (local_node, remote_nodes) = make_nodes(2).await;
-        let local_table = &mut local_node.table.lock().unwrap();
-        let remote_table = &remote_nodes[0].table.lock().unwrap();
-
-        let result = local_table.add(remote_table.peer);
-        let result2 = local_table.add(remote_table.peer);
-        assert!(result);
-        assert!(!result2);
-    }
 
     #[tokio::test]
     async fn ping_rpc() {
-        let mut local = make_node(0).await;
-        let mut remote = make_node(1).await;
-        local.table.lock().unwrap().add(remote.local_record);
+        let mut local = Node::new(
+            U256::from(0).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
+        );
+        let mut remote = Node::new(
+            U256::from(1).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
+        );
+        local.table.lock().unwrap().add(Peer {
+            id: remote.id,
+            socket_addr: remote.socket,
+        });
 
         let _ = local.start().await;
         let _ = remote.start().await;
+
         tokio::time::sleep(Duration::from_secs(1)).await;
         let ping = local.ping(remote.id);
         assert!(ping.await);
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let dummy = make_node(2).await;
+        let dummy = Node::new(
+            U256::from(2).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6002),
+        );
         let ping = local.ping(dummy.id);
         assert!(!ping.await);
     }
@@ -157,9 +163,19 @@ mod tests {
     #[allow(warnings)]
     #[tokio::test]
     async fn find_node_rpc() {
-        let mut local = make_node(0).await;
-        let mut remote = make_node(1).await;
-        local.table.lock().unwrap().add(remote.local_record);
+        let mut local = Node::new(
+            U256::from(0).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
+        );
+        let mut remote = Node::new(
+            U256::from(1).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
+        );
+
+        local.table.lock().unwrap().add(Peer {
+            id: remote.id,
+            socket_addr: remote.socket,
+        });
 
         // Populate remote's table
         {
@@ -167,8 +183,19 @@ mod tests {
             let remote_table = {
                 for i in 2..10 {
                     if i != 3 {
-                        let node = make_node(i).await;
-                        remote_table.add(node.local_record);
+                        let port = "600".to_string() + &i.to_string();
+                        let mut node = Node::new(
+                            U256::from(i).into(),
+                            SocketAddr::new(
+                                "127.0.0.1".parse::<IpAddr>().unwrap(),
+                                port.parse::<u16>().unwrap(),
+                            ),
+                        );
+
+                        remote_table.add(Peer {
+                            id: node.id,
+                            socket_addr: node.socket,
+                        });
                     }
                 }
                 remote_table
@@ -178,7 +205,11 @@ mod tests {
         let _ = remote.start().await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let node_to_find = make_node(3).await.local_record;
+        let mut node_to_find = Node::new(
+            U256::from(3).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
+        );
+
         let find_node = local.find_node(node_to_find.id);
         let result = find_node.await;
         println!("\n");

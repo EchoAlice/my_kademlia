@@ -4,20 +4,12 @@
 #![allow(clippy::assign_op_pattern)]
 
 use crate::kbucket::MAX_BUCKETS;
-use crate::node::{Node, Peer};
-use crate::socket::SocketAddr;
-use std::net;
-use std::net::IpAddr;
 use uint::*;
 
 pub const PING_MESSAGE_SIZE: usize = 1024;
 
+// TODO: pub type Identifier = U256;
 pub type Identifier = [u8; 32];
-//  TODO:
-// pub struct Identifier {
-//     inner: [u8; 32],
-// }
-// impl From<u64> for Identifier {}
 
 construct_uint! {
     /// 256-bit unsigned integer (little endian).
@@ -31,7 +23,7 @@ pub fn xor_bucket_index(x: &Identifier, y: &Identifier) -> usize {
 
     MAX_BUCKETS - (xor_distance.leading_zeros() as usize)
 }
-
+/*
 // Helper Functions for Tests
 // -------------------------------------------------------------------------
 pub async fn make_nodes(n: u8) -> (Node, Vec<Node>) {
@@ -51,7 +43,7 @@ pub async fn make_node(index: u8) -> Node {
 }
 
 pub fn make_peer(index: u8) -> Peer {
-    let ip = String::from("127.0.0.1").parse::<IpAddr>().unwrap();
+    let ip = "127.0.0.1".parse::<IpAddr>().unwrap();
     let port_start = 9000_u16;
 
     let mut id = [0_u8; 32];
@@ -66,3 +58,4 @@ pub fn make_peer(index: u8) -> Peer {
     }
 }
 // -------------------------------------------------------------------------
+ */

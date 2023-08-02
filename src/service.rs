@@ -19,7 +19,6 @@ pub struct Service {
     node_rx: mpsc::Receiver<Message>,
     pub outbound_requests: HashMap<Identifier, Message>,
     pub table: Arc<Mutex<KbucketTable>>,
-    // pub table: std::arc::Arc<std::sync::Mutex<KbucketTable>>,  <-- Alex's suggestion
 }
 
 impl Service {
@@ -144,10 +143,6 @@ impl Service {
 
         let message_bytes = socket::encoded(&msg);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
-        println!("\n");
-        println!("Local node: {:?}", self.local_record.id);
-        println!("Outbound inserted: {:?}", msg);
-        println!("\n");
         self.outbound_requests.insert(msg.target.id, msg);
         Ok(())
     }
@@ -158,7 +153,6 @@ impl Service {
     fn process_response(&mut self, id: Identifier, inbound_resp: Message) {
         // Warning: This removes all outbound reqs to an individual node.
         let local_msg = self.outbound_requests.remove(&id).unwrap();
-        println!("Local msg: {:?}", local_msg.body);
         match inbound_resp.body {
             MessageBody::Pong(_) => {
                 if let MessageBody::Ping(_, tx) = local_msg.body {
@@ -170,13 +164,10 @@ impl Service {
                 }
             }
             MessageBody::FoundNode(_, _, closest_peers) => {
-                println!("Processing response");
                 if let MessageBody::FindNode(_, _, tx) = local_msg.body {
                     if local_msg.session == inbound_resp.session {
-                        println!("sending response back to main rpc");
                         let _ = tx.unwrap().send(Some(closest_peers));
                     } else {
-                        println!("Sessions didn't match!");
                         let _ = tx.unwrap().send(None);
                     }
                 }

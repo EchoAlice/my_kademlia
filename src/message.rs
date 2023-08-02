@@ -103,9 +103,10 @@ impl Decodable for MessageBody {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::helper::make_peer;
+    use crate::helper::U256;
+    use crate::socket;
     use bytes::BytesMut;
-
+    use std::net::{IpAddr, SocketAddr};
     // One shot channels don't allow us to #[derive(PartialEq)] on msg body.
     // Printing statements instead.
     #[test]
@@ -157,10 +158,20 @@ mod test {
 
         let total = 2;
         let mut closest_peers = Vec::new();
-        let peer = make_peer(1);
-        closest_peers.push(peer);
-        let peer = make_peer(2);
-        closest_peers.push(peer);
+        let peer1 = Peer {
+            id: U256::from(1).into(),
+            socket_addr: socket::SocketAddr {
+                addr: SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
+            },
+        };
+        closest_peers.push(peer1);
+        let peer2 = Peer {
+            id: U256::from(2).into(),
+            socket_addr: socket::SocketAddr {
+                addr: SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6002),
+            },
+        };
+        closest_peers.push(peer2);
 
         let body = MessageBody::FoundNode(local_id, total, closest_peers);
         println!("Body: {:?}", body);
