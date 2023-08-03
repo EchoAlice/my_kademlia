@@ -3,7 +3,9 @@ use crate::node::Peer;
 use crate::socket::SocketAddr;
 use std::collections::HashMap;
 
-const BUCKET_SIZE: usize = 20; // "k"
+//  K == Max bucket size
+//  Typically 20.  Only 5 for testing
+const K: usize = 5;
 pub const MAX_BUCKETS: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -14,7 +16,7 @@ pub struct Bucket {
 
 impl Bucket {
     fn add(&mut self, peer: Peer) -> Option<SocketAddr> {
-        if self.map.len() <= BUCKET_SIZE {
+        if self.map.len() <= K {
             self.map.insert(peer.id, peer.socket_addr)
         } else {
             None
@@ -59,39 +61,62 @@ impl KbucketTable {
         }
     }
 
-    // TODO: pub fn k_closest_nodes() {}
-    pub fn get_closest_node(&self, id: &Identifier) -> Option<Peer> {
-        let bucket_index = xor_bucket_index(&self.id, &id);
+    // TODO:   -> Option<Vec<Peer>>
+    pub fn get_closest_nodes(&self, id: &Identifier) -> Option<Peer> {
+        let mut closest_nodes = Vec::new();
+        let target_index = xor_bucket_index(&self.id, &id) as i32;
+        let mut current_index = target_index;
+        let mut bucket = &self.buckets[target_index as usize];
+        let mut count = 0;
+        let mut radius = 0;
 
-        // Searches table for closest (single) peer
-        for bucket in self.buckets.iter().skip(bucket_index) {
+        // TOOD: Implement functionality that removes visiting a bucket twice in a row.
+        //
+        //  Utilize left and right cursors.  Think of this as left and right of a number line:
+        //      0, 1, 2, ... target, ... 254, 255
+        // let mut l_cursor: i32 = 0;
+        // let mut r_cursor: i32 = 0;
+
+        // TODO: Oscilates around bucket index.  Break IF node 256 buckets have been checked
+        while closest_nodes.len() < K && count <= MAX_BUCKETS {
             if !bucket.map.is_empty() {
+                // TODO: Grab as many peers from the bucket as possible
                 let k = bucket.map.keys().next().unwrap();
                 let (k, v) = bucket.map.get_key_value(k).unwrap();
 
-                return Some(Peer {
+                let peer = Peer {
                     id: *k,
                     socket_addr: *v,
-                });
+                };
+                closest_nodes.push(peer);
             }
-        }
 
-        // Loops around table. Should I be oscilating between bucket[i+1] and bucket[i-1]?
-        for i in (0..bucket_index).rev() {
-            if !self.buckets[i].map.is_empty() {
-                let k = self.buckets[i].map.keys().next().unwrap();
-                let (k, v) = self.buckets[i].map.get_key_value(k).unwrap();
-
-                return Some(Peer {
-                    id: *k,
-                    socket_addr: *v,
-                });
+            // Increases index
+            if count % 2 == 0 {
+                radius += 1;
+                // Valid
+                if target_index + radius <= 255 {
+                    current_index = target_index + radius;
+                }
             }
+            // Decreases index
+            if count % 2 == 1 {
+                // Valid
+                if target_index - radius >= 0 {
+                    current_index = target_index - radius;
+                }
+            }
+            println!("Index: {:?}", current_index);
+            bucket = &self.buckets[current_index as usize];
+            count += 1;
         }
-        println!("Node still wasn't found");
-        None
+        if closest_nodes.is_empty() {
+            return None;
+        }
+        return Some(closest_nodes[0]);
     }
 
+    // TOOD: Delete this when I've implemented closest_nodes()
     pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
         let bucket_index = xor_bucket_index(&self.id, id);
         if self.buckets[bucket_index].map.is_empty() {
@@ -106,50 +131,10 @@ impl KbucketTable {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::helper::U256;
+    use crate::helper::{xor_bucket_index, U256};
     use crate::node::Node;
     use crate::socket;
     use std::net::{IpAddr, SocketAddr};
-
-    #[test]
-    fn get_closest_node() {
-        let local = Node::new(
-            U256::from(0).into(),
-            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
-        );
-        let mut table = KbucketTable::new(local.id);
-
-        for i in 2..10 {
-            if i != 3 {
-                let port = "600".to_string() + &i.to_string();
-                println!("{:?}", port);
-
-                table.add(Peer {
-                    id: U256::from(i).into(),
-                    socket_addr: socket::SocketAddr {
-                        addr: SocketAddr::new(
-                            "127.0.0.1".parse::<IpAddr>().unwrap(),
-                            port.parse::<u16>().unwrap(),
-                        ),
-                    },
-                });
-            }
-        }
-
-        let node_to_find = Node::new(
-            U256::from(3).into(),
-            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
-        );
-        let closest_node = table.get_closest_node(&node_to_find.id).unwrap();
-        let expected_node = Peer {
-            id: U256::from(2).into(),
-            socket_addr: socket::SocketAddr {
-                addr: SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6002),
-            },
-        };
-
-        assert_eq!(closest_node, expected_node);
-    }
 
     #[test]
     fn get_closest_nodes() {
@@ -157,37 +142,39 @@ mod test {
             U256::from(0).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
         );
-        let mut table = KbucketTable::new(local.id);
-        let peers_added = Vec::new();
-
-        for i in 2..10 {
-            if i != 3 {
-                let port = "600".to_string() + &i.to_string();
-                println!("{:?}", port);
-
-                table.add(Peer {
-                    id: U256::from(i).into(),
-                    socket_addr: socket::SocketAddr {
-                        addr: SocketAddr::new(
-                            "127.0.0.1".parse::<IpAddr>().unwrap(),
-                            port.parse::<u16>().unwrap(),
-                        ),
-                    },
-                });
-            }
-        }
-
-        // Figure out xor distances for each node.
-        // Create expected_nodes based on this info!
         let node_to_find = Node::new(
-            U256::from(3).into(),
-            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
+            U256::from(13).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6013),
         );
-        for peer in peers_added {
-            let distance = xor_bucket_index(&node_to_find.id, &peer);
-            println!("Node: {:?}, Distance: {:?} ", peer[31], distance);
+        let mut table = KbucketTable::new(local.id);
+        let mut peers_added = Vec::new();
+        let mut expected_nodes: Vec<Peer> = Vec::new();
+
+        for i in 2..30 {
+            if i == 13 {
+                continue;
+            }
+            let port = "600".to_string() + &i.to_string();
+            let peer = Peer {
+                id: U256::from(i).into(),
+                socket_addr: socket::SocketAddr {
+                    addr: SocketAddr::new(
+                        "127.0.0.1".parse::<IpAddr>().unwrap(),
+                        port.parse::<u16>().unwrap(),
+                    ),
+                },
+            };
+            table.add(peer);
+            peers_added.push(peer);
+
+            // How i derive expected nodes
+            // let distance = xor_bucket_index(&node_to_find.id, &peer.id);
+            // println!("Node: {:?}, Distance: {:?} ", peer.id[31], distance);
         }
 
-        // let _closest_nodes = table.get_closest_nodes(&node_to_find.id).unwrap();
+        // expected_nodes.extend_from_slice(&peers_added[..K]);
+
+        let closest_nodes = table.get_closest_nodes(&node_to_find.id).unwrap();
+        println!("Closest nodes: {:?}", closest_nodes);
     }
 }

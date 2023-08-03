@@ -91,7 +91,7 @@ impl Service {
                         MessageBody::FindNode(id, node_to_find, _) => {
                             let mut closest_nodes = Vec::new();
                             let target = Peer {id: *id, socket_addr};
-                            let close_node = self.table.lock().unwrap().get_closest_node(&node_to_find).unwrap();
+                            let close_node = self.table.lock().unwrap().get_closest_nodes(&node_to_find).unwrap();
                             closest_nodes.push(close_node);
 
                             self.found_node(inbound_req.session, target, closest_nodes).await;

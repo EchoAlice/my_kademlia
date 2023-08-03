@@ -6,8 +6,6 @@
 use crate::kbucket::MAX_BUCKETS;
 use uint::*;
 
-pub const PING_MESSAGE_SIZE: usize = 1024;
-
 // TODO: pub type Identifier = U256;
 pub type Identifier = [u8; 32];
 

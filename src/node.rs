@@ -87,7 +87,7 @@ impl Node {
                     println!("Node is already in table!");
                     return None;
                 }
-                if let Some(target) = table.get_closest_node(&node_to_find) {
+                if let Some(target) = table.get_closest_nodes(&node_to_find) {
                     target
                 } else {
                     println!("No nodes in routing table");
