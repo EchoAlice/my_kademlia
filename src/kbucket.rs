@@ -61,10 +61,10 @@ impl KbucketTable {
         }
     }
 
-    // TODO:   -> Option<Vec<Peer>>
-    pub fn get_closest_nodes(&self, id: &Identifier) -> Option<Peer> {
+    pub fn get_closest_nodes(&self, id: &Identifier) -> Option<Vec<Peer>> {
         let mut closest_nodes = Vec::new();
         let target_index = xor_bucket_index(&self.id, &id) as i32;
+        let mut prev_index = -1;
         let mut current_index = target_index;
         let mut bucket = &self.buckets[target_index as usize];
         let mut count = 0;
@@ -106,6 +106,7 @@ impl KbucketTable {
                     current_index = target_index - radius;
                 }
             }
+
             println!("Index: {:?}", current_index);
             bucket = &self.buckets[current_index as usize];
             count += 1;
@@ -113,7 +114,7 @@ impl KbucketTable {
         if closest_nodes.is_empty() {
             return None;
         }
-        return Some(closest_nodes[0]);
+        return Some(closest_nodes);
     }
 
     // TOOD: Delete this when I've implemented closest_nodes()

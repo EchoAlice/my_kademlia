@@ -87,12 +87,9 @@ impl Service {
                             let target = Peer {id: *id, socket_addr};
                             self.process_response(target.id, inbound_req);
                         }
-                        // TODO: Create function that returns k closest nodes
                         MessageBody::FindNode(id, node_to_find, _) => {
-                            let mut closest_nodes = Vec::new();
                             let target = Peer {id: *id, socket_addr};
-                            let close_node = self.table.lock().unwrap().get_closest_nodes(&node_to_find).unwrap();
-                            closest_nodes.push(close_node);
+                            let closest_nodes = self.table.lock().unwrap().get_closest_nodes(&node_to_find).unwrap();
 
                             self.found_node(inbound_req.session, target, closest_nodes).await;
                         }

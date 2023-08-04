@@ -88,7 +88,7 @@ impl Node {
                     return None;
                 }
                 if let Some(target) = table.get_closest_nodes(&node_to_find) {
-                    target
+                    target[0]
                 } else {
                     println!("No nodes in routing table");
                     return None;
