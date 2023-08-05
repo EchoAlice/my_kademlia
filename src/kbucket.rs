@@ -75,50 +75,45 @@ impl KbucketTable {
         for _ in 0..256 {
             if target_index + r_cursor < 256 {
                 current_index = target_index + r_cursor;
-                self.collect_peers(current_index, &mut closest_peers);
+                if let Some(peers) = self.bucket_peers(current_index) {
+                    for peer in peers {
+                        closest_peers.push(peer);
+                    }
+                }
                 r_cursor += 1;
             }
             if target_index - l_cursor >= 0 {
                 current_index = target_index - l_cursor;
-                self.collect_peers(current_index, &mut closest_peers);
+                if let Some(peers) = self.bucket_peers(current_index) {
+                    for peer in peers {
+                        closest_peers.push(peer);
+                    }
+                }
                 l_cursor += 1;
             }
-            // bucket = &self.buckets[current_index];
-            println!("\n");
-            // println!("{:?}", closest_nodes);
         }
-
-        None
+        if closest_peers.is_empty() {
+            return None;
+        }
+        Some(closest_peers)
     }
 
-    // return an Option<Vec<Peer>>.    Feels like closest_nodes.len() logic should be in get_closest_nodes()
-    fn collect_peers(&self, i: i32, closest_nodes: &mut Vec<Peer>) {
+    fn bucket_peers(&self, i: i32) -> Option<Vec<Peer>> {
         let bucket = &self.buckets[i as usize];
-        println!("Current index: {:?}", i);
+        let mut bucket_peers = Vec::new();
 
         // Cycle through bucket.
         for (k, v) in bucket.map.iter() {
-            if closest_nodes.len() < K {
-                let peer = Peer {
-                    id: *k,
-                    socket_addr: *v,
-                };
-                closest_nodes.push(peer);
-            } else {
-                return;
-            }
+            let peer = Peer {
+                id: *k,
+                socket_addr: *v,
+            };
+            bucket_peers.push(peer);
         }
-    }
-
-    // TOOD: Delete this when I've implemented closest_nodes()
-    pub fn get_bucket_for(&self, id: &Identifier) -> Option<&HashMap<[u8; 32], SocketAddr>> {
-        let bucket_index = xor_bucket_index(&self.id, id);
-        if self.buckets[bucket_index].map.is_empty() {
-            println!("BUCKET IS EMPTY");
+        if bucket_peers.is_empty() {
             return None;
         }
-        println!("BUCKET ISN'T EMPTY");
-        Some(&self.buckets[bucket_index].map)
+        Some(bucket_peers)
     }
 }
 
@@ -169,6 +164,6 @@ mod test {
         // expected_nodes.extend_from_slice(&peers_added[..K]);
 
         let closest_nodes = table.get_closest_nodes(&node_to_find.id).unwrap();
-        println!("Closest nodes: {:?}", closest_nodes);
+        println!("Test Closest nodes: {:?}", closest_nodes);
     }
 }
