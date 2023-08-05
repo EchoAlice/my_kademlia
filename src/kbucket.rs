@@ -62,59 +62,52 @@ impl KbucketTable {
     }
 
     pub fn get_closest_nodes(&self, id: &Identifier) -> Option<Vec<Peer>> {
-        let mut closest_nodes = Vec::new();
-        let target_index = xor_bucket_index(&self.id, &id) as i32;
-        let mut prev_index = -1;
-        let mut current_index = target_index;
-        let mut bucket = &self.buckets[target_index as usize];
-        let mut count = 0;
-        let mut radius = 0;
+        // Diff in cursors keep the index from repeating in first iteration of function
+        let mut l_cursor: i32 = 1;
+        let mut r_cursor: i32 = 0;
 
-        // TOOD: Implement functionality that removes visiting a bucket twice in a row.
-        //
         //  Utilize left and right cursors.  Think of this as left and right of a number line:
         //      0, 1, 2, ... target, ... 254, 255
-        // let mut l_cursor: i32 = 0;
-        // let mut r_cursor: i32 = 0;
+        let mut closest_peers: Vec<Peer> = Vec::new();
+        let target_index = xor_bucket_index(&self.id, &id) as i32;
+        let mut current_index = target_index;
 
-        // TODO: Oscilates around bucket index.  Break IF node 256 buckets have been checked
-        while closest_nodes.len() < K && count <= MAX_BUCKETS {
-            if !bucket.map.is_empty() {
-                // TODO: Grab as many peers from the bucket as possible
-                let k = bucket.map.keys().next().unwrap();
-                let (k, v) = bucket.map.get_key_value(k).unwrap();
+        for _ in 0..256 {
+            if target_index + r_cursor < 256 {
+                current_index = target_index + r_cursor;
+                self.collect_peers(current_index, &mut closest_peers);
+                r_cursor += 1;
+            }
+            if target_index - l_cursor >= 0 {
+                current_index = target_index - l_cursor;
+                self.collect_peers(current_index, &mut closest_peers);
+                l_cursor += 1;
+            }
+            // bucket = &self.buckets[current_index];
+            println!("\n");
+            // println!("{:?}", closest_nodes);
+        }
 
+        None
+    }
+
+    // return an Option<Vec<Peer>>.    Feels like closest_nodes.len() logic should be in get_closest_nodes()
+    fn collect_peers(&self, i: i32, closest_nodes: &mut Vec<Peer>) {
+        let bucket = &self.buckets[i as usize];
+        println!("Current index: {:?}", i);
+
+        // Cycle through bucket.
+        for (k, v) in bucket.map.iter() {
+            if closest_nodes.len() < K {
                 let peer = Peer {
                     id: *k,
                     socket_addr: *v,
                 };
                 closest_nodes.push(peer);
+            } else {
+                return;
             }
-
-            // Increases index
-            if count % 2 == 0 {
-                radius += 1;
-                // Valid
-                if target_index + radius <= 255 {
-                    current_index = target_index + radius;
-                }
-            }
-            // Decreases index
-            if count % 2 == 1 {
-                // Valid
-                if target_index - radius >= 0 {
-                    current_index = target_index - radius;
-                }
-            }
-
-            println!("Index: {:?}", current_index);
-            bucket = &self.buckets[current_index as usize];
-            count += 1;
         }
-        if closest_nodes.is_empty() {
-            return None;
-        }
-        return Some(closest_nodes);
     }
 
     // TOOD: Delete this when I've implemented closest_nodes()
