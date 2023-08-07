@@ -70,7 +70,7 @@ impl KbucketTable {
         //      0, 1, 2, ... target, ... 254, 255
         let mut closest_peers: Vec<Peer> = Vec::new();
         let target_index = xor_bucket_index(&self.id, &id) as i32;
-        let mut current_index = target_index;
+        let mut current_index;
 
         for _ in 0..256 {
             if target_index + r_cursor < 256 {
@@ -137,7 +137,7 @@ mod test {
         );
         let mut table = KbucketTable::new(local.id);
         let mut peers_added = Vec::new();
-        let mut expected_nodes: Vec<Peer> = Vec::new();
+        let mut expected_peers: Vec<Peer> = Vec::new();
 
         for i in 2..30 {
             if i == 13 {
@@ -156,14 +156,14 @@ mod test {
             table.add(peer);
             peers_added.push(peer);
 
-            // How i derive expected nodes
-            // let distance = xor_bucket_index(&node_to_find.id, &peer.id);
-            // println!("Node: {:?}, Distance: {:?} ", peer.id[31], distance);
+            if xor_bucket_index(&node_to_find.id, &peer.id) <= 4 {
+                expected_peers.push(peer);
+            }
         }
 
-        // expected_nodes.extend_from_slice(&peers_added[..K]);
-
+        // TODO: Sort closest_nodes by node ID and compare with expected_nodes
         let closest_nodes = table.get_closest_nodes(&node_to_find.id).unwrap();
-        println!("Test Closest nodes: {:?}", closest_nodes);
+        println!("{:?}", closest_nodes);
+        // closest_nodes.sort();
     }
 }
