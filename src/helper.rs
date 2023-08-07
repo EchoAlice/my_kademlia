@@ -3,7 +3,7 @@
 // to address further
 #![allow(clippy::assign_op_pattern)]
 
-use crate::kbucket::MAX_BUCKETS;
+use crate::node::MAX_BUCKETS;
 use uint::*;
 
 // TODO: pub type Identifier = U256;

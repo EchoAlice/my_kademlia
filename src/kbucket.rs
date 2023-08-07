@@ -1,12 +1,7 @@
 use crate::helper::{xor_bucket_index, Identifier};
-use crate::node::Peer;
+use crate::node::{Peer, K, MAX_BUCKETS};
 use crate::socket::SocketAddr;
 use std::collections::HashMap;
-
-//  K == Max bucket size
-//  Typically 20.  Only 5 for testing
-const K: usize = 5;
-pub const MAX_BUCKETS: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bucket {
@@ -61,7 +56,8 @@ impl KbucketTable {
         }
     }
 
-    pub fn get_closest_nodes(&self, id: &Identifier) -> Option<Vec<Peer>> {
+    // TODO: Have parameter for number of nodes to grab
+    pub fn get_closest_nodes(&self, id: &Identifier, x: usize) -> Option<Vec<Peer>> {
         // Diff in cursors keep the index from repeating in first iteration of function
         let mut l_cursor: i32 = 1;
         let mut r_cursor: i32 = 0;
@@ -77,7 +73,11 @@ impl KbucketTable {
                 current_index = target_index + r_cursor;
                 if let Some(peers) = self.bucket_peers(current_index) {
                     for peer in peers {
-                        closest_peers.push(peer);
+                        if closest_peers.len() < x {
+                            closest_peers.push(peer);
+                        } else {
+                            return Some(closest_peers);
+                        }
                     }
                 }
                 r_cursor += 1;
@@ -86,7 +86,11 @@ impl KbucketTable {
                 current_index = target_index - l_cursor;
                 if let Some(peers) = self.bucket_peers(current_index) {
                     for peer in peers {
-                        closest_peers.push(peer);
+                        if closest_peers.len() < x {
+                            closest_peers.push(peer);
+                        } else {
+                            return Some(closest_peers);
+                        }
                     }
                 }
                 l_cursor += 1;
@@ -162,7 +166,7 @@ mod test {
         }
 
         // TODO: Sort closest_nodes by node ID and compare with expected_nodes
-        let closest_nodes = table.get_closest_nodes(&node_to_find.id).unwrap();
+        let closest_nodes = table.get_closest_nodes(&node_to_find.id, K).unwrap();
         println!("{:?}", closest_nodes);
         // closest_nodes.sort();
     }

@@ -13,6 +13,13 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot};
 
+//  A == Parallel queries for node_lookup()
+const A: usize = 3;
+//  K == Max bucket size
+//  Typically 20.  Only 5 for testing
+pub const K: usize = 5;
+pub const MAX_BUCKETS: usize = 256;
+
 #[derive(Clone, Copy, Debug, PartialEq, RlpEncodable, RlpDecodable)]
 pub struct Peer {
     pub id: Identifier,
@@ -74,20 +81,17 @@ impl Node {
     }
 
     // Should i check routing table for node_to_find before requesting?
-    pub fn find_node(
-        &mut self,
-        node_to_find: Identifier,
-    ) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
+    pub fn find_node(&mut self, id: Identifier) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
         async move {
             let target = {
                 let table = &self.table.lock().unwrap();
-                let target = table.get(&node_to_find);
+                let target = table.get(&id);
 
-                if !target.is_none() {
+                if target.is_some() {
                     println!("Node is already in table!");
                     return None;
                 }
-                if let Some(target) = table.get_closest_nodes(&node_to_find) {
+                if let Some(target) = table.get_closest_nodes(&id, K) {
                     target[0]
                 } else {
                     println!("No nodes in routing table");
@@ -99,12 +103,29 @@ impl Node {
             let msg = Message {
                 target,
                 session: (rand::thread_rng().gen_range(0..=255)),
-                body: (MessageBody::FindNode(self.id, node_to_find, Some(tx))),
+                body: (MessageBody::FindNode(self.id, id, Some(tx))),
             };
 
             let _ = self.service_tx.as_ref().unwrap().send(msg).await;
             rx.await.unwrap()
         }
+    }
+
+    pub fn node_lookup(&mut self, id: Identifier) {
+        // What should max count be?
+        // let mut count = 0;
+
+        // while count < 15 {
+        //     // 1. Grab "A" closest nodes from table.
+
+        //     // 2. Send find_node request to each.
+
+        //     // 3. Update table with responses
+
+        //     count += 1;
+        // }
+
+        unimplemented!()
     }
     // ---------------------------------------------------------------------------------------------------
 
@@ -219,5 +240,28 @@ mod tests {
         // assert_eq!(find_node.await, );
 
         // Verify response from node
+    }
+
+    #[tokio::test]
+    async fn node_lookup() {
+        let mut local = Node::new(
+            U256::from(0).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
+        );
+        let remote = Node::new(
+            U256::from(1).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
+        );
+        let node_to_find = Node::new(
+            U256::from(3).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
+        );
+
+        local.table.lock().unwrap().add(Peer {
+            id: remote.id,
+            socket_addr: remote.socket,
+        });
+
+        local.node_lookup(node_to_find.id);
     }
 }
