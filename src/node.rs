@@ -17,7 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 const A: usize = 3;
 //  K == Max bucket size
 //  Typically 20.  Only 5 for testing
-pub const K: usize = 5;
+pub const K: usize = 7;
 pub const MAX_BUCKETS: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, RlpEncodable, RlpDecodable)]
@@ -114,6 +114,15 @@ impl Node {
     pub fn node_lookup(&mut self, id: Identifier) {
         // What should max count be?
         // let mut count = 0;
+        let targets = {
+            let table = &self.table.lock().unwrap();
+            if let Some(targets) = table.get_closest_nodes(&id, A) {
+                targets
+            } else {
+                println!("No nodes in table");
+                return;
+            }
+        };
 
         // while count < 15 {
         //     // 1. Grab "A" closest nodes from table.

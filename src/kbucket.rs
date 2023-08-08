@@ -139,10 +139,10 @@ mod test {
             U256::from(13).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6013),
         );
+
+        // Populate local node's table
         let mut table = KbucketTable::new(local.id);
         let mut peers_added = Vec::new();
-        let mut expected_peers: Vec<Peer> = Vec::new();
-
         for i in 2..30 {
             if i == 13 {
                 continue;
@@ -160,14 +160,40 @@ mod test {
             table.add(peer);
             peers_added.push(peer);
 
-            if xor_bucket_index(&node_to_find.id, &peer.id) <= 4 {
-                expected_peers.push(peer);
+            let distance = xor_bucket_index(&node_to_find.id, &peer.id);
+            // let distance = &node_to_find.id[31] ^ &peer.id[31];
+            println!("Node: {:?}, Distance {:?}", peer.id[31], distance);
+        }
+
+        // Creates our expected response
+        let mut expected_peers: Vec<Peer> = Vec::new();
+        for i in 8..16 {
+            if i == 13 {
+                continue;
             }
+            let port = "600".to_string() + &i.to_string();
+            let peer = Peer {
+                id: U256::from(i).into(),
+                socket_addr: socket::SocketAddr {
+                    addr: SocketAddr::new(
+                        "127.0.0.1".parse::<IpAddr>().unwrap(),
+                        port.parse::<u16>().unwrap(),
+                    ),
+                },
+            };
+            expected_peers.push(peer);
         }
 
         // TODO: Sort closest_nodes by node ID and compare with expected_nodes
-        let closest_nodes = table.get_closest_nodes(&node_to_find.id, K).unwrap();
-        println!("{:?}", closest_nodes);
-        // closest_nodes.sort();
+        let mut closest_nodes = table.get_closest_nodes(&node_to_find.id, K).unwrap();
+        closest_nodes.sort_by(|a, b| a.id.partial_cmp(&b.id).unwrap());
+
+        for node in closest_nodes {
+            println!("{:?}", node.id[31]);
+        }
+        println!("\n");
+        for node in expected_peers {
+            println!("{:?}", node.id[31]);
+        }
     }
 }
