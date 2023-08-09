@@ -108,7 +108,7 @@ mod test {
     use bytes::BytesMut;
     use std::net::{IpAddr, SocketAddr};
     // One shot channels don't allow us to #[derive(PartialEq)] on msg body.
-    // Printing statements instead.
+    // Print statements instead.
     #[test]
     fn serialize_ping() {
         let id = [0u8; 32];

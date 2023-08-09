@@ -48,29 +48,59 @@ impl Node {
 
     // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
+    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
+    /// to some given node ID.  We call this procedure a **node lookup**".
+    ///
+    /// WIP:
+    pub async fn node_lookup(&mut self, id: Identifier) {
+        // What should max count be?
+        // let mut count = 0;
+        // while count < 15 {
 
-    pub fn ping(&mut self, id: Identifier) -> impl Future<Output = bool> + '_ {
-        async move {
-            let peer = {
-                let table = &self.table.lock().unwrap();
-                let target = table.get(&id);
-                if target.is_none() {
-                    return false;
-                }
-                target.unwrap()
-            };
+        // 1. Grab "A" closest peers from table.
+        let targets = {
+            let table = &self.table.lock().unwrap();
+            if let Some(targets) = table.get_closest_nodes(&id, A) {
+                targets
+            } else {
+                println!("No nodes in table");
+                return;
+            }
+        };
+        println!("Targets: {:?}", targets);
 
-            let (tx, rx) = oneshot::channel();
-
-            let msg = Message {
-                target: peer,
-                session: (rand::thread_rng().gen_range(0..=255)),
-                body: (MessageBody::Ping(self.id, Some(tx))),
-            };
-
-            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-            rx.await.unwrap()
+        // 2. Send find_node request to each peer.
+        for peer in targets {
+            let handle = self.find_node_targeted(id, peer).await;
+            // Update table inside thread
+            // tokio::spawn(async move {
+            //      handle.await;
+            // });
         }
+
+        // 3. Update table with responses
+
+        //     count += 1;
+        // }
+    }
+    pub async fn find_node_targeted(
+        &mut self,
+        id: Identifier,
+        target: Peer,
+    ) -> oneshot::Receiver<Option<Vec<Peer>>> {
+        // ) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
+        // async move {
+        let (tx, rx) = oneshot::channel();
+        let msg = Message {
+            target,
+            session: (rand::thread_rng().gen_range(0..=255)),
+            body: (MessageBody::FindNode(self.id, id, Some(tx))),
+        };
+
+        let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+        // rx.await.unwrap()
+        // }
+        rx
     }
 
     // Should i check routing table for node_to_find before requesting?
@@ -104,35 +134,30 @@ impl Node {
         }
     }
 
-    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
-    /// to some given node ID.  We call this procedure a **node lookup**".
-    ///
-    /// WIP
-    pub fn node_lookup(&mut self, id: Identifier) {
-        // What should max count be?
-        // let mut count = 0;
-        let targets = {
-            let table = &self.table.lock().unwrap();
-            if let Some(targets) = table.get_closest_nodes(&id, A) {
-                targets
-            } else {
-                println!("No nodes in table");
-                return;
-            }
-        };
-        println!("Targets: {:?}", targets);
-        // while count < 15 {
-        //     // 1. Grab "A" closest nodes from table.
+    pub fn ping(&mut self, id: Identifier) -> impl Future<Output = bool> + '_ {
+        async move {
+            let peer = {
+                let table = &self.table.lock().unwrap();
+                let target = table.get(&id);
+                if target.is_none() {
+                    return false;
+                }
+                target.unwrap()
+            };
 
-        //     // 2. Send find_node request to each.
+            let (tx, rx) = oneshot::channel();
 
-        //     // 3. Update table with responses
+            let msg = Message {
+                target: peer,
+                session: (rand::thread_rng().gen_range(0..=255)),
+                body: (MessageBody::Ping(self.id, Some(tx))),
+            };
 
-        //     count += 1;
-        // }
-
-        // unimplemented!()
+            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+            rx.await.unwrap()
+        }
     }
+
     // ---------------------------------------------------------------------------------------------------
 
     pub async fn start(&mut self) -> Result<(), &'static str> {
@@ -283,6 +308,8 @@ mod tests {
             id: remote.id,
             socket_addr: remote.socket,
         });
+
+        // TODO: Add peers to remote's routing table.
 
         local.node_lookup(node_to_find.id);
     }
