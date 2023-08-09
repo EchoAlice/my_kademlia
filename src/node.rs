@@ -13,11 +13,9 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-//  A == Parallel queries for node_lookup()
-const A: usize = 3;
-//  K == Max bucket size
-//  Typically 20.  Only 5 for testing
-pub const K: usize = 7;
+//  Typically 20.  Only 7 for testing
+pub const K: usize = 7; // Max bucket size
+const A: usize = 3; // Parallel queries for node_lookup()
 pub const MAX_BUCKETS: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, RlpEncodable, RlpDecodable)]
@@ -47,11 +45,6 @@ impl Node {
             outbound_requests: (Default::default()),
         }
     }
-
-    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
-    /// to some given node ID.  We call this procedure a **node lookup**".
-    ///
-    // TODO: node_lookup(self, id) -> peer {}
 
     // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
@@ -111,6 +104,10 @@ impl Node {
         }
     }
 
+    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
+    /// to some given node ID.  We call this procedure a **node lookup**".
+    ///
+    /// WIP
     pub fn node_lookup(&mut self, id: Identifier) {
         // What should max count be?
         // let mut count = 0;
@@ -123,7 +120,7 @@ impl Node {
                 return;
             }
         };
-
+        println!("Targets: {:?}", targets);
         // while count < 15 {
         //     // 1. Grab "A" closest nodes from table.
 
@@ -134,7 +131,7 @@ impl Node {
         //     count += 1;
         // }
 
-        unimplemented!()
+        // unimplemented!()
     }
     // ---------------------------------------------------------------------------------------------------
 
@@ -201,6 +198,10 @@ mod tests {
             U256::from(1).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
         );
+        let node_to_find = Node::new(
+            U256::from(13).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
+        );
 
         local.table.lock().unwrap().add(Peer {
             id: remote.id,
@@ -211,44 +212,56 @@ mod tests {
         {
             let mut remote_table = remote.table.lock().unwrap();
             let remote_table = {
-                for i in 2..10 {
-                    if i != 3 {
-                        let port = "600".to_string() + &i.to_string();
-                        let mut node = Node::new(
-                            U256::from(i).into(),
-                            SocketAddr::new(
+                for i in 2..30 {
+                    if i == 13 {
+                        continue;
+                    }
+                    let port = "600".to_string() + &i.to_string();
+                    let peer = Peer {
+                        id: U256::from(i).into(),
+                        socket_addr: socket::SocketAddr {
+                            addr: SocketAddr::new(
                                 "127.0.0.1".parse::<IpAddr>().unwrap(),
                                 port.parse::<u16>().unwrap(),
                             ),
-                        );
-
-                        remote_table.add(Peer {
-                            id: node.id,
-                            socket_addr: node.socket,
-                        });
-                    }
+                        },
+                    };
+                    remote_table.add(peer);
                 }
                 remote_table
             };
         }
+
+        // Creates our expected response
+        let mut expected_peers: Vec<Peer> = Vec::new();
+        for i in 8..16 {
+            if i == 13 {
+                continue;
+            }
+            let port = "600".to_string() + &i.to_string();
+            let peer = Peer {
+                id: U256::from(i).into(),
+                socket_addr: socket::SocketAddr {
+                    addr: SocketAddr::new(
+                        "127.0.0.1".parse::<IpAddr>().unwrap(),
+                        port.parse::<u16>().unwrap(),
+                    ),
+                },
+            };
+            expected_peers.push(peer);
+        }
+
         let _ = local.start().await;
         let _ = remote.start().await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let mut node_to_find = Node::new(
-            U256::from(3).into(),
-            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
-        );
-
         let find_node = local.find_node(node_to_find.id);
-        let result = find_node.await;
-        println!("\n");
-        println!("Peer: {:?}", result);
-
-        // let expected result = ;
-        // assert_eq!(find_node.await, );
-
-        // Verify response from node
+        if let Some(mut closest_nodes) = find_node.await {
+            closest_nodes.sort_by(|a, b| a.id.partial_cmp(&b.id).unwrap());
+            assert_eq!(closest_nodes, expected_peers);
+        } else {
+            panic!()
+        }
     }
 
     #[tokio::test]

@@ -21,5 +21,3 @@ pub fn xor_bucket_index(x: &Identifier, y: &Identifier) -> usize {
 
     MAX_BUCKETS - (xor_distance.leading_zeros() as usize)
 }
-
-// TOOD: Fix xor_bucket_index()
