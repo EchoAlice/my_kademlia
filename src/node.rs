@@ -48,15 +48,13 @@ impl Node {
 
     // Protocol's Exposed functions:
     // ---------------------------------------------------------------------------------------------------
-    /// "The most important procedure a Kademlia participant must perform is to locate the k closest nodes
-    /// to some given node ID.  We call this procedure a **node lookup**".
+    /// The node_lookup function iteratively calls our find_node rpc to query the "a" closest nodes to an id.
+    /// With each response, our local node updates its routing table and calls the next closest peers etc...
     ///
     /// WIP:
+    ///  - Wrap query logic within a "query_depth = 5" loop.
+    ///  - Should I have 3 seperate indexes for the 3 parallel lookups (each with a max of "?
     pub async fn node_lookup(&mut self, id: Identifier) {
-        // What should max count be?
-        // let mut count = 0;
-        // while count < 15 {
-
         // 1. Grab "A" closest peers from table.
         let targets = {
             let table = &self.table.lock().unwrap();
@@ -71,18 +69,22 @@ impl Node {
 
         // 2. Send find_node request to each peer.
         for peer in targets {
-            let handle = self.find_node_targeted(id, peer).await;
-            // Update table inside thread
-            // tokio::spawn(async move {
-            //      handle.await;
-            // });
+            let rx = self.find_node_targeted(id, peer).await;
+            tokio::spawn(async move {
+                if let Some(peers) = rx.await.unwrap() {
+                    // How do i update the table with newly received peers?
+                    println!("Peers received: {:?}", peer);
+                    println!("\n");
+                }
+            });
         }
 
         // 3. Update table with responses
-
-        //     count += 1;
-        // }
     }
+
+    /// This function is async because the service processes inbound reqs from rpcs one at a time.  
+    /// It doesn't require a response to happen immediately!  Access rx response by assigning fn a
+    /// variable.
     pub async fn find_node_targeted(
         &mut self,
         id: Identifier,
@@ -290,6 +292,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn find_node_targeted() {
+        let mut local = Node::new(
+            U256::from(0).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
+        );
+        let mut remote = Node::new(
+            U256::from(1).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
+        );
+        let mut remote_peer = Peer {
+            id: remote.id,
+            socket_addr: remote.socket,
+        };
+
+        let node_to_find = Node::new(
+            U256::from(13).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
+        );
+
+        local.table.lock().unwrap().add(Peer {
+            id: remote.id,
+            socket_addr: remote.socket,
+        });
+
+        // Populate remote's table
+        {
+            let mut remote_table = remote.table.lock().unwrap();
+            let remote_table = {
+                for i in 2..30 {
+                    if i == 13 {
+                        continue;
+                    }
+                    let port = "600".to_string() + &i.to_string();
+                    let peer = Peer {
+                        id: U256::from(i).into(),
+                        socket_addr: socket::SocketAddr {
+                            addr: SocketAddr::new(
+                                "127.0.0.1".parse::<IpAddr>().unwrap(),
+                                port.parse::<u16>().unwrap(),
+                            ),
+                        },
+                    };
+                    remote_table.add(peer);
+                }
+                remote_table
+            };
+        }
+
+        // Creates our expected response
+        let mut expected_peers: Vec<Peer> = Vec::new();
+        for i in 8..16 {
+            if i == 13 {
+                continue;
+            }
+            let port = "600".to_string() + &i.to_string();
+            let peer = Peer {
+                id: U256::from(i).into(),
+                socket_addr: socket::SocketAddr {
+                    addr: SocketAddr::new(
+                        "127.0.0.1".parse::<IpAddr>().unwrap(),
+                        port.parse::<u16>().unwrap(),
+                    ),
+                },
+            };
+            expected_peers.push(peer);
+        }
+
+        let _ = local.start().await;
+        let _ = remote.start().await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let rx = local.find_node_targeted(node_to_find.id, remote_peer).await;
+
+        if let Some(mut closest_nodes) = rx.await.unwrap() {
+            closest_nodes.sort_by(|a, b| a.id.partial_cmp(&b.id).unwrap());
+            assert_eq!(closest_nodes, expected_peers);
+        } else {
+            panic!()
+        }
+    }
+
+    #[tokio::test]
     async fn node_lookup() {
         let mut local = Node::new(
             U256::from(0).into(),
@@ -311,6 +395,6 @@ mod tests {
 
         // TODO: Add peers to remote's routing table.
 
-        local.node_lookup(node_to_find.id);
+        local.node_lookup(node_to_find.id).await;
     }
 }
