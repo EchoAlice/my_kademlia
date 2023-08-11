@@ -73,7 +73,7 @@ impl Node {
             tokio::spawn(async move {
                 if let Some(peers) = rx.await.unwrap() {
                     // How do i update the table with newly received peers?
-                    println!("Peers received: {:?}", peer);
+                    println!("Peers received: {:?}", peers);
                     println!("\n");
                 }
             });
@@ -83,7 +83,7 @@ impl Node {
     }
 
     /// This function is async because the service processes inbound reqs from rpcs one at a time.  
-    /// It doesn't require a response to happen immediately!  Access rx response by assigning fn a
+    /// service_tx.send() doesn't require a response to happen immediately!  Access rx response by assigning fn a
     /// variable.
     pub async fn find_node_targeted(
         &mut self,
@@ -100,8 +100,7 @@ impl Node {
         };
 
         let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-        // rx.await.unwrap()
-        // }
+        // rx.await.unwrap; }
         rx
     }
 
@@ -176,6 +175,10 @@ impl Node {
     }
 }
 
+/// Run tests individually.  Some error occurs because of shared IP addresses
+/// between tests.
+///
+/// Tests are explicitely verbose to provide all context needed in one source.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,7 +304,7 @@ mod tests {
             U256::from(1).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
         );
-        let mut remote_peer = Peer {
+        let remote_peer = Peer {
             id: remote.id,
             socket_addr: remote.socket,
         };
@@ -311,6 +314,7 @@ mod tests {
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
         );
 
+        // TODO: Add more peers to table so we can call "a" nodes simultaneously.
         local.table.lock().unwrap().add(Peer {
             id: remote.id,
             socket_addr: remote.socket,
@@ -319,25 +323,22 @@ mod tests {
         // Populate remote's table
         {
             let mut remote_table = remote.table.lock().unwrap();
-            let remote_table = {
-                for i in 2..30 {
-                    if i == 13 {
-                        continue;
-                    }
-                    let port = "600".to_string() + &i.to_string();
-                    let peer = Peer {
-                        id: U256::from(i).into(),
-                        socket_addr: socket::SocketAddr {
-                            addr: SocketAddr::new(
-                                "127.0.0.1".parse::<IpAddr>().unwrap(),
-                                port.parse::<u16>().unwrap(),
-                            ),
-                        },
-                    };
-                    remote_table.add(peer);
+            for i in 2..30 {
+                if i == 13 {
+                    continue;
                 }
-                remote_table
-            };
+                let port = "600".to_string() + &i.to_string();
+                let peer = Peer {
+                    id: U256::from(i).into(),
+                    socket_addr: socket::SocketAddr {
+                        addr: SocketAddr::new(
+                            "127.0.0.1".parse::<IpAddr>().unwrap(),
+                            port.parse::<u16>().unwrap(),
+                        ),
+                    },
+                };
+                remote_table.add(peer);
+            }
         }
 
         // Creates our expected response
@@ -361,8 +362,8 @@ mod tests {
 
         let _ = local.start().await;
         let _ = remote.start().await;
-
         tokio::time::sleep(Duration::from_secs(1)).await;
+
         let rx = local.find_node_targeted(node_to_find.id, remote_peer).await;
 
         if let Some(mut closest_nodes) = rx.await.unwrap() {
@@ -379,7 +380,7 @@ mod tests {
             U256::from(0).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
         );
-        let remote = Node::new(
+        let mut remote = Node::new(
             U256::from(1).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
         );
@@ -388,12 +389,37 @@ mod tests {
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
         );
 
+        // TODO: Add 4 peers to remote's routing table.
         local.table.lock().unwrap().add(Peer {
             id: remote.id,
             socket_addr: remote.socket,
         });
 
-        // TODO: Add peers to remote's routing table.
+        // Populate remote's table
+        {
+            let mut remote_table = remote.table.lock().unwrap();
+            for i in 2..30 {
+                if i == 13 {
+                    continue;
+                }
+                let port = "600".to_string() + &i.to_string();
+                let peer = Peer {
+                    id: U256::from(i).into(),
+                    socket_addr: socket::SocketAddr {
+                        addr: SocketAddr::new(
+                            "127.0.0.1".parse::<IpAddr>().unwrap(),
+                            port.parse::<u16>().unwrap(),
+                        ),
+                    },
+                };
+                remote_table.add(peer);
+            }
+        }
+
+        // Start servers here bc services need to be running for nodes to communicate.
+        let _ = local.start().await;
+        let _ = remote.start().await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         local.node_lookup(node_to_find.id).await;
     }
