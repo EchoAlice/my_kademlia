@@ -376,50 +376,78 @@ mod tests {
 
     #[tokio::test]
     async fn node_lookup() {
+        // TODO: Request the node_to_find from a node who doesn't have the node.
+        //       ie. Require two hops for successful lookup.
         let mut local = Node::new(
             U256::from(0).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
-        );
-        let mut remote = Node::new(
-            U256::from(1).into(),
-            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
         );
         let node_to_find = Node::new(
             U256::from(3).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
         );
 
-        // TODO: Add 4 peers to remote's routing table.
-        local.table.lock().unwrap().add(Peer {
-            id: remote.id,
-            socket_addr: remote.socket,
-        });
+        // Here we create nodes to add to local's routing table.
+        let mut remote_nodes = Vec::new();
+        let mut remote1 = Node::new(
+            U256::from(1).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
+        );
+        remote_nodes.push(&remote1);
+        let mut remote5 = Node::new(
+            U256::from(5).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6005),
+        );
+        remote_nodes.push(&remote5);
+        let mut remote7 = Node::new(
+            U256::from(7).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6007),
+        );
+        remote_nodes.push(&remote7);
+        let mut remote20 = Node::new(
+            U256::from(20).into(),
+            SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6020),
+        );
+        remote_nodes.push(&remote20);
 
-        // Populate remote's table
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Populate local's and remotes' tables.
         {
-            let mut remote_table = remote.table.lock().unwrap();
-            for i in 2..30 {
-                if i == 13 {
-                    continue;
+            let mut local_table = local.table.lock().unwrap();
+            for node in remote_nodes {
+                local_table.add(Peer {
+                    id: node.id,
+                    socket_addr: node.socket,
+                });
+
+                let mut remote_table = node.table.lock().unwrap();
+                for i in 2..30 {
+                    if i == 13 {
+                        continue;
+                    }
+                    let port = "600".to_string() + &i.to_string();
+                    let peer = Peer {
+                        id: U256::from(i).into(),
+                        socket_addr: socket::SocketAddr {
+                            addr: SocketAddr::new(
+                                "127.0.0.1".parse::<IpAddr>().unwrap(),
+                                port.parse::<u16>().unwrap(),
+                            ),
+                        },
+                    };
+                    remote_table.add(peer);
                 }
-                let port = "600".to_string() + &i.to_string();
-                let peer = Peer {
-                    id: U256::from(i).into(),
-                    socket_addr: socket::SocketAddr {
-                        addr: SocketAddr::new(
-                            "127.0.0.1".parse::<IpAddr>().unwrap(),
-                            port.parse::<u16>().unwrap(),
-                        ),
-                    },
-                };
-                remote_table.add(peer);
             }
         }
 
-        // Start servers here bc services need to be running for nodes to communicate.
+        // To test the communication between nodes, we need to instantiate
+        // each of their servers.
         let _ = local.start().await;
-        let _ = remote.start().await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = remote1.start().await;
+        let _ = remote5.start().await;
+        let _ = remote7.start().await;
+        let _ = remote20.start().await;
 
         local.node_lookup(node_to_find.id).await;
     }
