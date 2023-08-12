@@ -12,6 +12,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Duration;
 
 //  Typically 20.  Only 7 for testing
 pub const K: usize = 7; // Max bucket size
@@ -51,52 +52,48 @@ impl Node {
     /// The node_lookup function iteratively calls our find_node rpc to query the "a" closest nodes to an id.
     /// With each response, our local node updates its routing table and calls the next closest peers etc...
     ///
-    /// WIP:
-    ///  - Wrap query logic within a "query_depth = 5" loop.
-    ///  - Should I have 3 seperate indexes for the 3 parallel lookups (each with a max of "?
-    pub async fn node_lookup(&mut self, id: Identifier) {
-        // 1. Grab "A" closest peers from table.
-        let targets = {
-            let table = &self.table.lock().unwrap();
-            if let Some(targets) = table.get_closest_nodes(&id, A) {
-                targets
-            } else {
-                println!("No nodes in table");
-                return;
-            }
-        };
+    /// Note: Routing table is updated within service when response is received.
+    pub async fn node_lookup(&mut self, id: Identifier) -> Vec<Peer> {
+        let mut query_depth = 0;
 
-        // 2. Send find_node request to each peer.
-        for peer in targets {
-            let rx = self.find_node_targeted(id, peer).await;
-
-            // Create task that manages my kbucket table.
-
-            // Process find_node responses concurrently.
-            //
-            // TODO:  How do i update the table with newly received peers?
-            // Use channels or read/write lock.
-            tokio::spawn(async move {
-                if let Some(peers) = rx.await.unwrap() {
-                    println!("Peers received: {:?}", peers);
-                    println!("\n");
+        while query_depth < 5 {
+            // 1. Grab "A" closest peers from table.
+            let targets = {
+                let table = &self.table.lock().unwrap();
+                if let Some(targets) = table.get_closest_nodes(&id, A) {
+                    targets
+                } else {
+                    panic!("No nodes in table");
                 }
-            });
+            };
+
+            // 2. Send find_node request to each peer.
+            for peer in targets {
+                self.find_node_targeted(id, peer).await;
+            }
+            // Delay is here to give a reasonable amount of time for responses to come in.
+            tokio::time::sleep(Duration::from_secs(4)).await;
+
+            // Printing to verify table has been updated (remove once testing functionality is implemented)
+            let table = &self.table.lock().unwrap();
+            println!("Table (After round 1 Node Lookup): {:?}", table);
+
+            query_depth += 1;
         }
 
-        // 3. Update table with responses
+        if let Some(peers) = &self.table.lock().unwrap().get_closest_nodes(&id, K) {
+            return peers.to_vec();
+        } else {
+            panic!("No nodes in table")
+        }
     }
 
-    /// This function is async because the service processes inbound reqs from rpcs one at a time.  
-    /// service_tx.send() doesn't require a response to happen immediately!  Access rx response by assigning fn a
-    /// variable.
+    // Modified find_node rpc to
     pub async fn find_node_targeted(
         &mut self,
         id: Identifier,
         target: Peer,
     ) -> oneshot::Receiver<Option<Vec<Peer>>> {
-        // ) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
-        // async move {
         let (tx, rx) = oneshot::channel();
         let msg = Message {
             target,
@@ -105,11 +102,12 @@ impl Node {
         };
 
         let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-        // rx.await.unwrap; }
         rx
     }
 
-    // Should i check routing table for node_to_find before requesting?
+    /// This function is async because the service processes inbound reqs from rpcs one at a time.  
+    /// service_tx.send() doesn't require a response to happen immediately!  Access rx response by assigning fn a
+    /// variable.
     pub fn find_node(&mut self, id: Identifier) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
         async move {
             let target = {
@@ -189,7 +187,6 @@ mod tests {
     use super::*;
     use crate::helper::U256;
     use std::net::{IpAddr, SocketAddr};
-    use tokio::time::Duration;
 
     #[tokio::test]
     async fn ping_rpc() {
@@ -459,6 +456,10 @@ mod tests {
         let _ = remote7.start().await;
         let _ = remote20.start().await;
 
+        // TODO: Print out intermediate msgs received from service.
+
+        println!("Table (Pre Node Lookup): {:?}", local.table);
+        println!("\n");
         local.node_lookup(node_to_find.id).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
     }

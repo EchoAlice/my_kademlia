@@ -191,7 +191,9 @@ mod tests {
     #[test]
     fn process_response() {
         // 1. Create node.
+
         // 2. Start service.
+
         // 3. Verify node's table is updated correctly.
     }
 }

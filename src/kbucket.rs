@@ -56,7 +56,6 @@ impl KbucketTable {
         }
     }
 
-    // TODO: Have parameter for number of nodes to grab
     pub fn get_closest_nodes(&self, id: &Identifier, x: usize) -> Option<Vec<Peer>> {
         // Diff in cursors keep the index from repeating in first iteration of function
         let mut l_cursor: i32 = 1;
