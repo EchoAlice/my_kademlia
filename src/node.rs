@@ -288,9 +288,15 @@ mod tests {
 
         let _ = local.start().await;
         let _ = remote.start().await;
+        println!("Table: {:?}", local.table);
+        println!("\n");
 
+        // Nodes returned from the query should be added to our routing table within the service.
+        // This functionality is a work in progress,
+        // **Our high level rpc will return the values that have already been added to the table.**
         tokio::time::sleep(Duration::from_secs(1)).await;
         let find_node = local.find_node(node_to_find.id);
+
         if let Some(mut closest_nodes) = find_node.await {
             closest_nodes.sort_by(|a, b| a.id.partial_cmp(&b.id).unwrap());
             assert_eq!(closest_nodes, expected_peers);
@@ -369,6 +375,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let rx = local.find_node_targeted(node_to_find.id, remote_peer).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         if let Some(mut closest_nodes) = rx.await.unwrap() {
             closest_nodes.sort_by(|a, b| a.id.partial_cmp(&b.id).unwrap());

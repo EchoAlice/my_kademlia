@@ -97,6 +97,7 @@ impl Service {
                             let target = Peer {id: *id, socket_addr};
                             self.process_response(target.id, inbound_req);
                         }
+
                         _ => {
                             unimplemented!()
                         }
@@ -163,6 +164,13 @@ impl Service {
             MessageBody::FoundNode(_, _, closest_peers) => {
                 if let MessageBody::FindNode(_, _, tx) = local_msg.body {
                     if local_msg.session == inbound_resp.session {
+                        let mut table = self.table.lock().unwrap();
+
+                        for peer in closest_peers.clone() {
+                            table.add(peer);
+                        }
+                        println!("Table after msg processed: {:?}", table);
+
                         let _ = tx.unwrap().send(Some(closest_peers));
                     } else {
                         let _ = tx.unwrap().send(None);
@@ -171,5 +179,19 @@ impl Service {
             }
             _ => println!("Not a response message type."),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // use super::*;
+
+    // Print statements currently show that table was updated from within the service!
+    // TODO: Prove this within a test!
+    #[test]
+    fn process_response() {
+        // 1. Create node.
+        // 2. Start service.
+        // 3. Verify node's table is updated correctly.
     }
 }
