@@ -11,8 +11,6 @@ bytes = { version = "1", default-features = false }
 alloy-rlp = {version = "0.3.2", features = ["derive"]}
 fastrlp-derive = "0.2.0"
 rand = "0.8"
-# ssz_rs = "0.9"
-# ssz_rs_derive = "0.9"
 sha2 = "0.10.6"
 tokio = { version = "1.28.2", features = ["full"] }
 uint = "0.9.5"

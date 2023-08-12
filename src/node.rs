@@ -65,14 +65,19 @@ impl Node {
                 return;
             }
         };
-        println!("Targets: {:?}", targets);
 
         // 2. Send find_node request to each peer.
         for peer in targets {
             let rx = self.find_node_targeted(id, peer).await;
+
+            // Create task that manages my kbucket table.
+
+            // Process find_node responses concurrently.
+            //
+            // TODO:  How do i update the table with newly received peers?
+            // Use channels or read/write lock.
             tokio::spawn(async move {
                 if let Some(peers) = rx.await.unwrap() {
-                    // How do i update the table with newly received peers?
                     println!("Peers received: {:?}", peers);
                     println!("\n");
                 }
@@ -314,7 +319,6 @@ mod tests {
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6003),
         );
 
-        // TODO: Add more peers to table so we can call "a" nodes simultaneously.
         local.table.lock().unwrap().add(Peer {
             id: remote.id,
             socket_addr: remote.socket,
@@ -377,7 +381,7 @@ mod tests {
     #[tokio::test]
     async fn node_lookup() {
         // TODO: Request the node_to_find from a node who doesn't have the node.
-        //       ie. Require two hops for successful lookup.
+        //       aka. Require two hops for successful lookup.
         let mut local = Node::new(
             U256::from(0).into(),
             SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6000),
@@ -441,8 +445,7 @@ mod tests {
             }
         }
 
-        // To test the communication between nodes, we need to instantiate
-        // each of their servers.
+        // To test the communication between nodes, we must start each of their servers.
         let _ = local.start().await;
         let _ = remote1.start().await;
         let _ = remote5.start().await;
@@ -450,5 +453,6 @@ mod tests {
         let _ = remote20.start().await;
 
         local.node_lookup(node_to_find.id).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
