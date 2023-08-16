@@ -1,83 +1,186 @@
 use crate::helper::Identifier;
 use crate::node::Peer;
-
+use alloy_rlp::{encode_list, Decodable, Encodable, Error, RlpDecodable, RlpEncodable};
 use tokio::sync::oneshot;
+type TotalNodes = u8;
 
 #[derive(Debug)]
-pub struct Message {
-    pub target: Peer,
-    pub inner: MessageInner,
+pub enum DecoderError {
+    Malformed,
 }
 
-// Get rid of this?
-#[derive(Debug)]
-pub struct MessageInner {
+#[derive(Debug, RlpEncodable, RlpDecodable)]
+pub struct Message {
+    pub target: Peer,
     pub session: u8,
     pub body: MessageBody,
 }
 
+// TODO: Impl PartialEq for MessageBody so we can verify serialization
+//       and deserialization within tests
 #[derive(Debug)]
 pub enum MessageBody {
-    Ping(Identifier, Option<oneshot::Sender<bool>>), // b"01"
-    Pong(Identifier),                                // b"02"
-    FindNode([Identifier; 2]),                       // b"03"
+    Ping(Identifier, Option<oneshot::Sender<bool>>), // 0
+    Pong(Identifier),                                // 1
+    FindNode(
+        Identifier,
+        Identifier,
+        Option<oneshot::Sender<Option<Vec<Peer>>>>,
+    ), // 2
+    FoundNode(Identifier, TotalNodes, Vec<Peer>),    // 3
 }
 
-impl MessageInner {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        match self.body {
-            MessageBody::Ping(requester_id, _) => {
-                out.extend_from_slice(b"01");
-                out.push(self.session);
-                out.extend_from_slice(&requester_id);
+//  +----------+---------+---------+----------+
+//  | msg type | session | node_id |   body   |
+//  +----------+---------+---------+----------+
+//  |  1 byte  |  1 byte | 32 bytes|    'n'   |
+//  +----------+---------+---------+----------+
+impl Encodable for MessageBody {
+    fn encode(&self, out: &mut dyn bytes::BufMut) {
+        match self {
+            Self::Ping(id, _) => {
+                let mut enc: [&dyn Encodable; 2] = [b""; 2];
+                enc[0] = &0_u8;
+                enc[1] = id;
+                encode_list::<_, dyn Encodable>(&enc, out);
             }
-            MessageBody::Pong(requester_id) => {
-                out.extend_from_slice(b"02");
-                out.push(self.session);
-                out.extend_from_slice(&requester_id);
+            Self::Pong(id) => {
+                let mut enc: [&dyn Encodable; 2] = [b""; 2];
+                enc[0] = &1_u8;
+                enc[1] = &id;
+                encode_list::<_, dyn Encodable>(&enc, out);
             }
-            MessageBody::FindNode([requester_id, id_to_find]) => {
-                out.extend_from_slice(b"03");
-                out.push(self.session);
-                out.extend_from_slice(&requester_id);
-                out.extend_from_slice(&id_to_find);
+            Self::FindNode(req_id, node_to_find, _) => {
+                let mut enc: [&dyn Encodable; 3] = [b""; 3];
+                enc[0] = &2_u8;
+                enc[1] = &req_id;
+                enc[2] = &node_to_find;
+                encode_list::<_, dyn Encodable>(&enc, out);
+            }
+            Self::FoundNode(req_id, total_nodes, closest_nodes) => {
+                let mut enc: [&dyn Encodable; 4] = [b""; 4];
+                enc[0] = &3_u8;
+                enc[1] = &req_id;
+                enc[2] = &total_nodes;
+                enc[3] = closest_nodes;
+                encode_list::<_, dyn Encodable>(&enc, out);
             }
         }
-        out
     }
 }
 
-pub fn construct_msg(datagram: [u8; 1024], target: Peer) -> Message {
-    let requester_id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
+impl Decodable for MessageBody {
+    fn decode(data: &mut &[u8]) -> Result<Self, Error> {
+        let mut payload = alloy_rlp::Header::decode_bytes(data, true)?;
 
-    match &datagram[0..2] {
-        b"01" => Message {
-            target,
-            inner: MessageInner {
-                session: datagram[2],
-                body: MessageBody::Ping(requester_id, None),
+        let typ = u8::decode(&mut payload)?;
+        let msg = match typ {
+            0 => {
+                let id = <[u8; 32]>::decode(&mut payload)?;
+                MessageBody::Ping(id, None)
+            }
+            1 => {
+                let id = <[u8; 32]>::decode(&mut payload)?;
+                MessageBody::Pong(id)
+            }
+            2 => {
+                let id = <[u8; 32]>::decode(&mut payload)?;
+                let target = <[u8; 32]>::decode(&mut payload)?;
+                MessageBody::FindNode(id, target, None)
+            }
+            3 => {
+                let id = <[u8; 32]>::decode(&mut payload)?;
+                let total = <u8>::decode(&mut payload)?;
+                let peers = <Vec<Peer>>::decode(&mut payload)?;
+                MessageBody::FoundNode(id, total, peers)
+            }
+            _ => panic!(),
+        };
+        Ok(msg)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::helper::U256;
+    use crate::socket;
+    use bytes::BytesMut;
+    use std::net::{IpAddr, SocketAddr};
+    // One shot channels don't allow us to #[derive(PartialEq)] on msg body.
+    // Print statements instead.
+    #[test]
+    fn serialize_ping() {
+        let id = [0u8; 32];
+        let body = MessageBody::Ping(id, None);
+        println!("Body: {:?}", body);
+
+        let mut out = BytesMut::new();
+        body.encode(&mut out);
+        let result = MessageBody::decode(&mut out.to_vec().as_slice());
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
+        println!("\n");
+    }
+
+    #[test]
+    fn serialize_pong() {
+        let id = [0u8; 32];
+        let body = MessageBody::Pong(id);
+        println!("Body: {:?}", body);
+
+        let mut out = BytesMut::new();
+        body.encode(&mut out);
+        let result = MessageBody::decode(&mut out.to_vec().as_slice());
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
+        println!("\n");
+    }
+
+    #[test]
+    fn serialize_find_node() {
+        let id = [0u8; 32];
+        let target = [1u8; 32];
+        let body = MessageBody::FindNode(id, target, None);
+        println!("Body: {:?}", body);
+
+        let mut out = BytesMut::new();
+        body.encode(&mut out);
+        let result = MessageBody::decode(&mut out.to_vec().as_slice());
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
+        println!("\n");
+    }
+
+    #[test]
+    fn serialize_found_node() {
+        let local_id = [0u8; 32];
+
+        let total = 2;
+        let mut closest_peers = Vec::new();
+        let peer1 = Peer {
+            id: U256::from(1).into(),
+            socket_addr: socket::SocketAddr {
+                addr: SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6001),
             },
-        },
-        b"02" => Message {
-            target,
-            inner: MessageInner {
-                session: datagram[2],
-                body: MessageBody::Pong(requester_id),
+        };
+        closest_peers.push(peer1);
+        let peer2 = Peer {
+            id: U256::from(2).into(),
+            socket_addr: socket::SocketAddr {
+                addr: SocketAddr::new("127.0.0.1".parse::<IpAddr>().unwrap(), 6002),
             },
-        },
-        b"03" => Message {
-            target,
-            inner: MessageInner {
-                session: datagram[2],
-                body: MessageBody::FindNode([
-                    requester_id,
-                    datagram[35..67].try_into().expect("Invalid slice length"),
-                ]),
-            },
-        },
-        _ => {
-            panic!("Message wasn't legitimate");
-        }
+        };
+        closest_peers.push(peer2);
+
+        let body = MessageBody::FoundNode(local_id, total, closest_peers);
+        println!("Body: {:?}", body);
+
+        let mut out = BytesMut::new();
+        body.encode(&mut out);
+        let result = MessageBody::decode(&mut out.to_vec().as_slice());
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
+        println!("\n");
     }
 }

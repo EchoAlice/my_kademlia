@@ -1,13 +1,17 @@
 use crate::helper::Identifier;
 use crate::kbucket::KbucketTable;
-use crate::message::{construct_msg, Message, MessageBody, MessageInner};
-use crate::node::Peer;
+use crate::message::{Message, MessageBody};
+use crate::node::{Peer, K};
+use crate::socket;
+use alloy_rlp::Decodable;
 use std::collections::HashMap;
 use std::io::Result;
-use std::net::SocketAddr;
+use std::net;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
+
+// TODO: Handle errors properly
 
 pub struct Service {
     pub local_record: Peer,
@@ -17,7 +21,6 @@ pub struct Service {
     pub table: Arc<Mutex<KbucketTable>>,
 }
 
-// TODO: Handle errors properly
 impl Service {
     // Main service functionality
     // ---------------------------------------------------------------------------------------------------
@@ -30,9 +33,9 @@ impl Service {
         let mut service = Service {
             local_record,
             socket: Arc::new(
-                UdpSocket::bind(SocketAddr::new(
-                    local_record.socket_addr.ip(),
-                    local_record.socket_addr.port(),
+                UdpSocket::bind(net::SocketAddr::new(
+                    local_record.socket_addr.addr.ip(),
+                    local_record.socket_addr.addr.port(),
                 ))
                 .await
                 .unwrap(),
@@ -56,33 +59,45 @@ impl Service {
             tokio::select! {
                 // Service Requests:
                 Some(service_msg) = self.node_rx.recv() => {
-                    match service_msg.inner.body {
+                    match service_msg.body {
                         MessageBody::Ping(_, _) => {
                             let _ = self.send_message(service_msg).await;
                         }
+                        MessageBody::FindNode(_, _, _) => {
+                            let _ = self.send_message(service_msg).await;
+                        }
                         _ => {
-                            println!("TODO: Implement other RPCs");
+                            println!("Service msg wasn't a request message");
                         }
                     }
                 }
+
                 // External Message Processing:
                 Ok((_, socket_addr)) = self.socket.recv_from(&mut datagram) => {
-                    let id: [u8; 32] = datagram[3..35].try_into().expect("Invalid slice length");
-                    let target = Peer {id, socket_addr};
-                    let inbound_req = construct_msg(datagram, target);
+                    let inbound_req = Message::decode(&mut datagram.to_vec().as_slice()).unwrap();
+                    let socket_addr = socket::SocketAddr { addr: socket_addr };
 
-                    match &inbound_req.inner.body {
-                        MessageBody::Ping(_, None) => {
+                    match &inbound_req.body {
+                        MessageBody::Ping(id, None) => {
+                            let target = Peer {id: *id, socket_addr};
                             self.table.lock().unwrap().add(target);
-                            self.pong(inbound_req.inner.session, target).await;
+                            self.pong(inbound_req.session, target).await;
                         }
-                        MessageBody::Pong(_) => {
-                            self.sessions_match(id, inbound_req);
+                        MessageBody::Pong(id) => {
+                            let target = Peer {id: *id, socket_addr};
+                            self.process_response(target.id, inbound_req);
                         }
-                        // TODO:
-                        MessageBody::FindNode(_) => {
-                            println!("FindNode request received")
+                        MessageBody::FindNode(id, node_to_find, _) => {
+                            let target = Peer {id: *id, socket_addr};
+                            let closest_nodes = self.table.lock().unwrap().get_closest_nodes(node_to_find, K).unwrap();
+
+                            self.found_node(inbound_req.session, target, closest_nodes).await;
                         }
+                        MessageBody::FoundNode(id, _, _) => {
+                            let target = Peer {id: *id, socket_addr};
+                            self.process_response(target.id, inbound_req);
+                        }
+
                         _ => {
                             unimplemented!()
                         }
@@ -97,48 +112,87 @@ impl Service {
     async fn pong(&mut self, session: u8, target: Peer) {
         let msg = Message {
             target,
-            inner: MessageInner {
-                session,
-                body: (MessageBody::Pong(self.local_record.id)),
-            },
+            session,
+            body: (MessageBody::Pong(self.local_record.id)),
         };
-
         let _ = self.send_message(msg).await;
     }
 
-    // TODO:
-    // async fn found_node() {}
+    async fn found_node(&mut self, session: u8, target: Peer, closest_nodes: Vec<Peer>) {
+        let msg = Message {
+            target,
+            session,
+            body: (MessageBody::FoundNode(
+                self.local_record.id,
+                closest_nodes.len() as u8,
+                closest_nodes,
+            )),
+        };
+        let _ = self.send_message(msg).await;
+    }
 
     // Helper Functions
     // ---------------------------------------------------------------------------------------------------
     async fn send_message(&mut self, msg: Message) -> Result<()> {
-        let dest = SocketAddr::new(msg.target.socket_addr.ip(), msg.target.socket_addr.port());
+        let dest = net::SocketAddr::new(
+            msg.target.socket_addr.addr.ip(),
+            msg.target.socket_addr.addr.port(),
+        );
 
-        let message_bytes = msg.inner.to_bytes();
+        let message_bytes = socket::encoded(&msg);
         let _ = self.socket.send_to(&message_bytes, dest).await.unwrap();
-
-        // TODO: Implement multiple pending messages per target
         self.outbound_requests.insert(msg.target.id, msg);
-
         Ok(())
     }
 
-    // Verifies the pong message received matches the ping originally sent and sends message to high level ping()
-    fn sessions_match(&mut self, id: Identifier, inbound_req: Message) -> bool {
-        let local_msg = self.outbound_requests.remove(&id).unwrap(); // Warning: This removes all outbound reqs to an individual node.
-        if let MessageBody::Ping(_, tx) = local_msg.inner.body {
-            if local_msg.inner.session == inbound_req.inner.session {
-                println!("Successful ping. Removing k,v");
-                let _ = tx.unwrap().send(true);
-                true
-            } else {
-                println!("Local and remote sessions don't match");
-                let _ = tx.unwrap().send(false);
-                false
+    // TODO: Remove id from parameter
+    //
+    // Verifies msg received is legit wrt msg originally sent
+    fn process_response(&mut self, id: Identifier, inbound_resp: Message) {
+        // Warning: This removes all outbound reqs to an individual node.
+        let local_msg = self.outbound_requests.remove(&id).unwrap();
+        match inbound_resp.body {
+            MessageBody::Pong(_) => {
+                if let MessageBody::Ping(_, tx) = local_msg.body {
+                    if local_msg.session == inbound_resp.session {
+                        let _ = tx.unwrap().send(true);
+                    } else {
+                        let _ = tx.unwrap().send(false);
+                    }
+                }
             }
-        } else {
-            println!("Client responded with incorrect message type");
-            false
+            MessageBody::FoundNode(_, _, closest_peers) => {
+                if let MessageBody::FindNode(_, _, tx) = local_msg.body {
+                    if local_msg.session == inbound_resp.session {
+                        let mut table = self.table.lock().unwrap();
+
+                        for peer in closest_peers.clone() {
+                            table.add(peer);
+                        }
+
+                        let _ = tx.unwrap().send(Some(closest_peers));
+                    } else {
+                        let _ = tx.unwrap().send(None);
+                    }
+                }
+            }
+            _ => println!("Not a response message type."),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // use super::*;
+
+    // Print statements currently show that table was updated from within the service!
+    // TODO: Prove this within a test!
+    #[test]
+    fn process_response() {
+        // 1. Create node.
+
+        // 2. Start service.
+
+        // 3. Verify node's table is updated correctly.
     }
 }
