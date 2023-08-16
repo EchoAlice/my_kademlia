@@ -89,7 +89,7 @@ impl Service {
                         }
                         MessageBody::FindNode(id, node_to_find, _) => {
                             let target = Peer {id: *id, socket_addr};
-                            let closest_nodes = self.table.lock().unwrap().get_closest_nodes(&node_to_find, K).unwrap();
+                            let closest_nodes = self.table.lock().unwrap().get_closest_nodes(node_to_find, K).unwrap();
 
                             self.found_node(inbound_req.session, target, closest_nodes).await;
                         }
@@ -169,7 +169,6 @@ impl Service {
                         for peer in closest_peers.clone() {
                             table.add(peer);
                         }
-                        println!("Table after msg processed: {:?}", table);
 
                         let _ = tx.unwrap().send(Some(closest_peers));
                     } else {

@@ -7,7 +7,6 @@ use alloy_rlp::{RlpDecodable, RlpEncodable};
 use rand::Rng;
 use std::{
     collections::HashMap,
-    future::Future,
     net,
     sync::{Arc, Mutex},
 };
@@ -82,13 +81,13 @@ impl Node {
         }
 
         if let Some(peers) = &self.table.lock().unwrap().get_closest_nodes(&id, K) {
-            return peers.to_vec();
+            peers.to_vec()
         } else {
             panic!("No nodes in table")
         }
     }
 
-    // Modified find_node rpc to
+    // Modified find_node rpc leveraged within node_lookup()
     pub async fn find_node_targeted(
         &mut self,
         id: Identifier,
@@ -105,61 +104,57 @@ impl Node {
         rx
     }
 
-    /// This function is async because the service processes inbound reqs from rpcs one at a time.  
+    /// Note: This function is async because the service processes inbound reqs from rpcs one at a time.  
     /// service_tx.send() doesn't require a response to happen immediately!  Access rx response by assigning fn a
     /// variable.
-    pub fn find_node(&mut self, id: Identifier) -> impl Future<Output = Option<Vec<Peer>>> + '_ {
-        async move {
-            let target = {
-                let table = &self.table.lock().unwrap();
-                let target = table.get(&id);
+    pub async fn find_node(&mut self, id: Identifier) -> Option<Vec<Peer>> {
+        let target = {
+            let table = &self.table.lock().unwrap();
+            let target = table.get(&id);
 
-                if target.is_some() {
-                    println!("Node is already in table!");
-                    return None;
-                }
-                if let Some(target) = table.get_closest_nodes(&id, K) {
-                    target[0]
-                } else {
-                    println!("No nodes in routing table");
-                    return None;
-                }
-            };
+            if target.is_some() {
+                println!("Node is already in table!");
+                return None;
+            }
+            if let Some(target) = table.get_closest_nodes(&id, K) {
+                target[0]
+            } else {
+                println!("No nodes in routing table");
+                return None;
+            }
+        };
 
-            let (tx, rx) = oneshot::channel();
-            let msg = Message {
-                target,
-                session: (rand::thread_rng().gen_range(0..=255)),
-                body: (MessageBody::FindNode(self.id, id, Some(tx))),
-            };
+        let (tx, rx) = oneshot::channel();
+        let msg = Message {
+            target,
+            session: (rand::thread_rng().gen_range(0..=255)),
+            body: (MessageBody::FindNode(self.id, id, Some(tx))),
+        };
 
-            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-            rx.await.unwrap()
-        }
+        let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+        rx.await.unwrap()
     }
 
-    pub fn ping(&mut self, id: Identifier) -> impl Future<Output = bool> + '_ {
-        async move {
-            let peer = {
-                let table = &self.table.lock().unwrap();
-                let target = table.get(&id);
-                if target.is_none() {
-                    return false;
-                }
-                target.unwrap()
-            };
+    pub async fn ping(&mut self, id: Identifier) -> bool {
+        let peer = {
+            let table = &self.table.lock().unwrap();
+            let target = table.get(&id);
+            if target.is_none() {
+                return false;
+            }
+            target.unwrap()
+        };
 
-            let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel();
 
-            let msg = Message {
-                target: peer,
-                session: (rand::thread_rng().gen_range(0..=255)),
-                body: (MessageBody::Ping(self.id, Some(tx))),
-            };
+        let msg = Message {
+            target: peer,
+            session: (rand::thread_rng().gen_range(0..=255)),
+            body: (MessageBody::Ping(self.id, Some(tx))),
+        };
 
-            let _ = self.service_tx.as_ref().unwrap().send(msg).await;
-            rx.await.unwrap()
-        }
+        let _ = self.service_tx.as_ref().unwrap().send(msg).await;
+        rx.await.unwrap()
     }
 
     // ---------------------------------------------------------------------------------------------------

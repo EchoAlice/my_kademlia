@@ -91,7 +91,7 @@ mod test {
         let foo = SocketAddr {
             addr: net::SocketAddr::new(ip, 8080),
         };
-        let foos = vec![foo.clone(), foo];
+        let foos = vec![foo, foo];
         let mut out = vec![];
         foos.encode(&mut out);
         let recovered = Vec::<SocketAddr>::decode(&mut out.as_slice()).unwrap();

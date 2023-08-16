@@ -44,16 +44,13 @@ impl KbucketTable {
     }
 
     pub fn get(&self, id: &Identifier) -> Option<Peer> {
-        let bucket_index = xor_bucket_index(&self.id, &id);
+        let bucket_index = xor_bucket_index(&self.id, id);
         let bucket = &self.buckets[bucket_index];
-        if let Some(socket_addr) = bucket.map.get(id) {
-            return Some(Peer {
-                id: *id,
-                socket_addr: *socket_addr,
-            });
-        } else {
-            None
-        }
+
+        bucket.map.get(id).map(|socket_addr| Peer {
+            id: *id,
+            socket_addr: *socket_addr,
+        })
     }
 
     pub fn get_closest_nodes(&self, id: &Identifier, x: usize) -> Option<Vec<Peer>> {
@@ -64,7 +61,7 @@ impl KbucketTable {
         //  Utilize left and right cursors.  Think of this as left and right of a number line:
         //      0, 1, 2, ... target, ... 254, 255
         let mut closest_peers: Vec<Peer> = Vec::new();
-        let target_index = xor_bucket_index(&self.id, &id) as i32;
+        let target_index = xor_bucket_index(&self.id, id) as i32;
         let mut current_index;
 
         for _ in 0..256 {
